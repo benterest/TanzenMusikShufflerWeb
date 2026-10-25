@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tanzen Display</title>
+  <link rel="stylesheet" href="steps.css">
+  <link rel="stylesheet" href="display.css">
+</head>
+<body>
+  <div id="bg" class="bg"></div>
+
+  <div class="stage">
+    <div class="topbar">
+      <span id="state" class="state"></span>
+      <span id="clock" class="clock"></span>
+    </div>
+
+    <div class="carousel">
+      <section id="now" class="now">
+        <div class="art-wrap">
+          <img id="cover" class="art" alt="" hidden>
+          <div id="cover-ph" class="art placeholder">♪</div>
+        </div>
+        <div class="info">
+          <div id="dance" class="dance"></div>
+          <div id="title" class="title">Waiting for the next track</div>
+          <div id="artist" class="artist"></div>
+          <div class="bar"><div id="bar-fill" class="bar-fill"></div></div>
+          <div class="times">
+            <span id="elapsed"></span>
+            <span id="steps" class="steps" hidden></span>
+            <span id="remaining"></span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <section class="next">
+      <div class="next-label">Up next</div>
+      <ol id="queue" class="queue"></ol>
+    </section>
+  </div>
+
+  <button id="fs-hint" class="fs-hint" type="button">Click or press F for fullscreen</button>
+
+  <script src="playclock.js"></script>
+  <script src="steps.js"></script>
+  <script src="display.js"></script>
+</body>
+</html>

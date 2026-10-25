@@ -1,0 +1,13 @@
+{
+  "name": "tanzen-music-shuffler-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Random next-track picker for public Deezer playlists, played through a deezer.com tab via userscript.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

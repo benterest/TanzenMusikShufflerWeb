@@ -1,0 +1,39 @@
+/* Dance step footprints next to the timer. Size with --step-size. */
+.steps {
+  --step-size: 22px;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: calc(var(--step-size) * .35);
+  color: inherit;
+}
+.steps[hidden] { display: none; }
+.step {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  opacity: .18;
+  transition: opacity .25s ease;
+}
+.step .foot { display: block; width: calc(var(--step-size) * .5); height: var(--step-size); transform: rotate(-8deg); }
+.step.right .foot { transform: scaleX(-1) rotate(-8deg) translateY(calc(var(--step-size) * -.18)); }
+.step .foot svg { width: 100%; height: 100%; fill: currentColor; display: block; }
+.step.quick .foot { width: calc(var(--step-size) * .36); height: calc(var(--step-size) * .72); }
+.step .count { font-size: calc(var(--step-size) * .42); line-height: 1; font-variant-numeric: tabular-nums; opacity: .8; }
+.step.landed { opacity: .55; }
+.step.current { opacity: 1; }
+.step.current .foot svg { fill: var(--step-accent, currentColor); }
+.step.stamp .foot { animation: step-stamp .32s cubic-bezier(.2, .9, .3, 1.3); }
+.step.right.stamp .foot { animation-name: step-stamp-right; }
+
+@keyframes step-stamp {
+  0% { transform: rotate(-8deg) scale(1.45); opacity: .3; }
+  100% { transform: rotate(-8deg) scale(1); opacity: 1; }
+}
+@keyframes step-stamp-right {
+  0% { transform: scaleX(-1) rotate(-8deg) translateY(calc(var(--step-size) * -.18)) scale(1.45); opacity: .3; }
+  100% { transform: scaleX(-1) rotate(-8deg) translateY(calc(var(--step-size) * -.18)) scale(1); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step.stamp .foot, .step.right.stamp .foot { animation: none; }
+}

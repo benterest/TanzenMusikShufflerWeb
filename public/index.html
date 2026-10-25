@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tanzen Music Shuffler</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Tanzen Music Shuffler</h1>
+    <div class="badges">
+      <span id="badge-deezer" class="badge">Deezer tab</span>
+      <span id="badge-preview" class="badge">Preview</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="card now">
+      <img id="np-cover" alt="" hidden>
+      <div class="np-info">
+        <div class="label">Now playing</div>
+        <div id="np-title" class="np-title">—</div>
+        <div id="np-artist" class="muted"></div>
+        <div id="np-playlist" class="muted small"></div>
+        <div class="progress"><div id="np-bar"></div></div>
+        <div id="np-time" class="muted small"></div>
+      </div>
+      <div class="controls">
+        <button id="btn-next" class="primary">⏭ Next track</button>
+        <button id="btn-pause">⏸ Pause</button>
+        <button id="btn-resume">▶ Resume</button>
+        <button id="btn-stop">⏹ Stop</button>
+        <button id="btn-display" title="Open a display-only window for the dance hall screen">⧉ Dance Hall</button>
+      </div>
+      <div id="error" class="error" hidden></div>
+    </section>
+
+    <div class="split">
+    <section class="card">
+      <h2>Settings</h2>
+      <div class="grid">
+        <label>Output
+          <select id="set-output">
+            <option value="deezer">Deezer tab (userscript)</option>
+            <option value="preview">30-second preview in this page</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="set-autoAdvance"> Automatically play the next track when one ends</label>
+        <label class="check"><input type="checkbox" id="set-showSteps"> Show dance step footprints on the display</label>
+        <label>Max play time (seconds, 0 = full track)
+          <input type="number" id="set-maxPlaySeconds" min="0" step="5">
+        </label>
+        <label>Fade-out (seconds)
+          <input type="number" id="set-fadeSeconds" min="0" step="1">
+        </label>
+        <label>Gap between tracks (seconds)
+          <input type="number" id="set-gapSeconds" min="0" step="1">
+        </label>
+      </div>
+      <label class="check" id="preview-host-row">
+        <input type="checkbox" id="preview-host"> Use this browser as the preview player
+      </label>
+      <audio id="preview-audio" preload="auto"></audio>
+    </section>
+
+    <section class="card queue-card">
+      <div class="card-head">
+        <h2>Up next <span id="queue-count" class="muted small"></span></h2>
+        <div class="head-actions">
+          <button id="btn-roll" title="Add 5 random tracks to the end of the queue">🎲 Rolling Dice</button>
+          <button id="btn-flip" title="Clear the queue and roll 5 new tracks">🔄 Flip Board</button>
+        </div>
+      </div>
+      <ol id="queue" class="list queue"></ol>
+      <p class="muted small hint">Drag to reorder, or use ↑ ↓. The top track plays on ⏭ Next track.</p>
+    </section>
+    </div>
+
+    <section class="card">
+      <h2>Playlists <span id="pool" class="muted small"></span></h2>
+      <form id="add-form" class="row">
+        <input id="add-input" placeholder="Public playlist URL or ID" required>
+        <button type="submit">Add</button>
+      </form>
+      <ul id="playlists" class="list"></ul>
+    </section>
+
+    <section class="card">
+      <h2>History</h2>
+      <ol id="history" class="list history"></ol>
+    </section>
+
+    <section class="card">
+      <h2>Connecting a Deezer tab</h2>
+      <ol class="steps">
+        <li>Install the <a href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a> browser extension. In Chrome, also turn on "Allow User Scripts" in the extension's details.</li>
+        <li>Click <a id="userscript-link" href="deezer-shuffler.user.js">Install userscript</a> and confirm in Tampermonkey.</li>
+        <li>Open <b>exactly one</b> tab on <a href="https://www.deezer.com/" target="_blank" rel="noopener">deezer.com</a>, signed in, and click anywhere on the page once (required by the browser's autoplay policy). When Tampermonkey asks to allow access to the server on first connect, choose "Always allow".</li>
+        <li>When the "Deezer tab" badge at the top turns green, press ⏭ Next track.</li>
+      </ol>
+    </section>
+  </main>
+
+  <script src="playclock.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

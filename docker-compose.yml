@@ -1,0 +1,13 @@
+services:
+  shuffler:
+    build: .
+    image: tanzen-music-shuffler:latest
+    container_name: tanzen-music-shuffler
+    ports:
+      - "${HOST_PORT:-8787}:8080"
+    volumes:
+      - shuffler-data:/data
+    restart: unless-stopped
+
+volumes:
+  shuffler-data:
