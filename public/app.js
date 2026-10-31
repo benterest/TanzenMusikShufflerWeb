@@ -257,6 +257,15 @@ function connectEvents() {
   };
 }
 
+// Settings live in a modal opened from the gear in the header. It closes with
+// the Close button, Esc (built into <dialog>) or a click on the backdrop.
+const settingsDialog = $('settings-dialog');
+$('btn-settings').onclick = () => settingsDialog.showModal();
+$('settings-close').onclick = () => settingsDialog.close();
+settingsDialog.addEventListener('click', (e) => {
+  if (e.target === settingsDialog) settingsDialog.close(); // the backdrop, outside .modal-body
+});
+
 $('btn-next').onclick = () => act(() => api('POST', 'api/next'));
 // Opens the display-only window filling a screen. Prefers a second screen
 // (projector) when the browser supports the Window Management API.

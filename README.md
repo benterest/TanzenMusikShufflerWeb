@@ -60,6 +60,8 @@ Patterns and tempos are defined in `public/steps.js`.
 The window opens sized to fill the screen. If a second screen (projector) is connected, Chrome can move it there; Chrome asks once for the "window management" permission. Browsers only allow fullscreen after a user action, so click the window once, or press **F** (double-click also toggles fullscreen). The page keeps the screen awake and hides the mouse cursor while it is idle. It only reads state and never controls playback, so you can open it on any device in the same network.
 
 ## Settings
+Settings open in a modal from the ⚙ gear next to the connection badges in the header. Close it with ✕ Close, Esc, or a click outside it.
+
 | Setting | Description |
 |---|---|
 | Automatically play the next track | Picks the next track automatically when one ends |
@@ -67,7 +69,7 @@ The window opens sized to fill the screen. If a second screen (projector) is con
 | Fade-out / Gap between tracks | Fade length when a max play time is set, and the wait before the next track starts |
 
 ## Queue
-The "Up next" panel, to the right of Settings, holds the upcoming tracks. Ten tracks are queued automatically whenever the queue is empty, including at startup and after adding a playlist.
+The "Up next" panel, below Now Playing, holds the upcoming tracks. Ten tracks are queued automatically whenever the queue is empty, including at startup and after adding a playlist.
 
 | Control | What it does |
 |---|---|
