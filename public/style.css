@@ -88,6 +88,27 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: 14px; col
 .share-value { width: 3em; font-size: 14px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
 .share.off .share-value { color: var(--muted); font-weight: 400; }
 @media (max-width: 520px) { .share input[type="range"] { width: 90px; } }
+/* Playlist track panel: opens in the right half of the Playlists card */
+.pl-layout { display: grid; gap: 16px; align-items: start; }
+.pl-layout.open { grid-template-columns: 1fr 1fr; }
+.pl-main { min-width: 0; }
+.pl-layout.open .share input[type="range"] { width: 80px; }
+.pl-tracks { min-width: 0; border-left: 1px solid var(--border); padding-left: 16px; }
+.pl-tracks-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.pl-tracks-head h3 { font-size: 15px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-track-list { max-height: 480px; overflow-y: auto; padding-right: 4px; }
+.pl-track-list img { width: 32px; height: 32px; }
+.pl-track-list button { flex: none; white-space: nowrap; font-size: 13px; padding: 4px 10px; }
+.pl-track-list button:disabled { opacity: .45; cursor: default; }
+.pl-track-list li.unplayable .grow { opacity: .5; }
+.tag { flex: none; font-size: 12px; padding: 1px 7px; border-radius: 99px; background: var(--border); color: var(--muted); white-space: nowrap; }
+.tag.now { background: var(--accent); color: var(--accent-text); }
+.icon.toggle[aria-expanded="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+@media (max-width: 860px) {
+  .pl-layout.open { grid-template-columns: 1fr; }
+  .pl-tracks { border-left: 0; padding-left: 0; border-top: 1px solid var(--border); padding-top: 12px; }
+}
+
 .steps { margin: 0; padding-left: 20px; }
 .steps li { margin-bottom: 6px; }
 

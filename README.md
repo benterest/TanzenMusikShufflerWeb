@@ -85,6 +85,9 @@ How a direct pick is told apart from Deezer switching songs by itself:
 - Ads (player type ads/jingle) are ignored.
 - When the previous track was in its last 3 seconds, the switch counts as that track ending (e.g. Deezer's autoplay). Changes in the 10 seconds after a track ends are not treated as picks.
 
+### Playlist tracks
+The ▾ button at the right end of each playlist row opens that playlist's tracks in the right half of the Playlists card (scrollable for long playlists). Tracks that are playing or already queued are marked. **Add to Next Queue** puts a track at the top of the queue, so it plays next. Picks made while the same track is playing line up in the order they were made (#1, #2, #3, …) and are tagged "Picked" in Up next; once the next track starts, the next pick goes to #1 again. A track that was already queued moves up instead of appearing twice. The panel then closes. Pressing ▴ or Esc also closes it.
+
 ### Playlist shares
 Each active playlist has a 0–100% slider: its chance of supplying the next track. The next track is picked in two steps: first a playlist, by its share, regardless of how many tracks it has; then a random track inside that playlist.
 

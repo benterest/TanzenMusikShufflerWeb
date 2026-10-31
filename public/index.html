@@ -83,8 +83,19 @@
         <input id="add-input" placeholder="Public playlist URL or ID" required>
         <button type="submit">Add</button>
       </form>
-      <ul id="playlists" class="list"></ul>
-      <p id="share-note" class="muted small hint" hidden></p>
+      <div id="pl-layout" class="pl-layout">
+        <div class="pl-main">
+          <ul id="playlists" class="list"></ul>
+          <p id="share-note" class="muted small hint" hidden></p>
+        </div>
+        <aside id="pl-tracks" class="pl-tracks" hidden>
+          <div class="pl-tracks-head">
+            <h3 id="pl-tracks-title"></h3>
+            <span id="pl-tracks-count" class="muted small"></span>
+          </div>
+          <ol id="pl-track-list" class="list pl-track-list"></ol>
+        </aside>
+      </div>
     </section>
 
     <section class="card">

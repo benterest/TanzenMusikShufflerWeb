@@ -126,6 +126,7 @@ function render(s) {
         </label>
         <button class="icon" data-refresh="${p.id}" title="Reload">↻</button>
         <button class="icon" data-delete="${p.id}" title="Delete">✕</button>
+        <button class="icon toggle" data-tracks="${p.id}" aria-expanded="${p.id === openPlaylistId}" title="Show tracks">${p.id === openPlaylistId ? '▴' : '▾'}</button>
       </li>`;
     }).join('')
     : '<li class="muted">Add a public playlist to get started.</li>';
@@ -134,6 +135,7 @@ function render(s) {
     lastPlaylistsHtml = html;
     $('playlists').innerHTML = html;
   }
+  renderTrackPanel(s);
 
   if (!dragQid) renderQueue(s);
 
@@ -156,6 +158,7 @@ function renderQueue(s) {
           <div>${esc(q.track.title)}</div>
           <div class="muted small">${esc(q.track.artist)} · ${esc(plTitle(q.track.playlistId))}</div>
         </div>
+        ${q.pickedFor !== undefined && q.pickedFor === (s.current ? s.current.seq : null) ? '<span class="tag" title="Added with Add to Next Queue during this track">Picked</span>' : ''}
         <span class="dur">${fmt(q.track.duration)}</span>
         <div class="acts">
           <button data-move="-1" title="Move up" ${i === 0 ? 'disabled' : ''}>↑</button>
@@ -316,8 +319,96 @@ $('playlists').addEventListener('change', (e) => {
   act(() => api('PATCH', 'api/settings', { playlistShares: shares }));
 });
 
+// ---------- playlist track panel ----------
+
+let openPlaylistId = null;
+const trackCache = new Map(); // playlistId -> { fetchedAt, tracks }
+let loadingTracks = null;
+let lastPanelHtml = '';
+
+function setOpenPlaylist(id) {
+  openPlaylistId = id;
+  if (snap) render(snap);
+}
+
+async function loadTracks(p) {
+  if (loadingTracks === p.id) return;
+  loadingTracks = p.id;
+  try {
+    const data = await api('GET', `api/playlists/${p.id}/tracks`);
+    trackCache.set(p.id, { fetchedAt: data.fetchedAt, tracks: data.tracks });
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    loadingTracks = null;
+    if (snap) render(snap);
+  }
+}
+
+// Right half of the Playlists card: the open playlist's tracks.
+function renderTrackPanel(s) {
+  const p = openPlaylistId && s.playlists.find((x) => x.id === openPlaylistId);
+  if (!p) openPlaylistId = null;
+  $('pl-layout').classList.toggle('open', !!p);
+  $('pl-tracks').hidden = !p;
+  if (!p) {
+    lastPanelHtml = '';
+    return;
+  }
+  $('pl-tracks-title').textContent = p.title;
+  $('pl-tracks-count').textContent = `${p.trackCount} tracks`;
+
+  const cached = trackCache.get(p.id);
+  let html;
+  if (!cached || cached.fetchedAt !== p.fetchedAt) {
+    loadTracks(p);
+    html = '<li class="muted">Loading tracks…</li>';
+  } else {
+    const queuedAt = new Map(s.queue.map((q, i) => [q.track.id, i + 1]));
+    const playingId = s.current && !s.current.endedAt ? s.current.track.id : null;
+    html = cached.tracks.map((t) => {
+      const mark = t.id === playingId ? '<span class="tag now">Playing</span>'
+        : queuedAt.has(t.id) ? `<span class="tag">Queued #${queuedAt.get(t.id)}</span>` : '';
+      return `
+      <li${t.readable ? '' : ' class="unplayable"'}>
+        ${t.cover ? `<img src="${esc(t.cover)}" alt="" loading="lazy">` : ''}
+        <div class="grow">
+          <div>${esc(t.title)}</div>
+          <div class="muted small">${esc(t.artist)} · ${fmt(t.duration)}</div>
+        </div>
+        ${mark}
+        <button data-next="${esc(t.id)}" ${t.readable ? '' : 'disabled title="Not playable on Deezer"'}>Add to Next Queue</button>
+      </li>`;
+    }).join('') || '<li class="muted">This playlist is empty.</li>';
+  }
+  if (html !== lastPanelHtml) {
+    const list = $('pl-track-list');
+    const keepScroll = lastPanelHtml && list.dataset.playlist === p.id ? list.scrollTop : 0;
+    lastPanelHtml = html;
+    list.innerHTML = html;
+    list.dataset.playlist = p.id;
+    list.scrollTop = keepScroll;
+  }
+}
+
+$('pl-track-list').onclick = (e) => {
+  const btn = e.target.closest('button[data-next]');
+  if (!btn) return;
+  const playlistId = openPlaylistId;
+  btn.disabled = true;
+  act(async () => {
+    await api('POST', 'api/queue/front', { playlistId, trackId: btn.dataset.next });
+    setOpenPlaylist(null);
+  }).finally(() => { btn.disabled = false; });
+};
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && openPlaylistId) setOpenPlaylist(null);
+});
+
 $('playlists').onclick = (e) => {
   const d = e.target.dataset;
+  if (d.tracks) setOpenPlaylist(openPlaylistId === d.tracks ? null : d.tracks);
   if (d.refresh) act(() => api('POST', `api/playlists/${d.refresh}/refresh`));
   if (d.delete && confirm('Delete this playlist?')) act(() => api('DELETE', `api/playlists/${d.delete}`));
   if (d.toggle) {

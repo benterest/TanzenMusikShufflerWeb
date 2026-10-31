@@ -527,6 +527,32 @@ async function route(req, res, url) {
     return sendJson(res, 200, { track });
   }
 
+  if ((r = m('GET', /^\/api\/playlists\/(\d+)\/tracks$/))) {
+    const pl = state.playlists[r[1]];
+    if (!pl) return sendJson(res, 404, { error: 'Playlist not found.' });
+    return sendJson(res, 200, { id: pl.id, fetchedAt: pl.fetchedAt, tracks: pl.tracks });
+  }
+
+  // Puts a chosen track near the top of the queue. Picks made while the same
+  // track is playing line up in the order they were made (#1, #2, ...); once
+  // the next track starts, the next pick goes to #1 again. A track that was
+  // already queued moves up instead of appearing twice.
+  if (m('POST', /^\/api\/queue\/front$/)) {
+    const body = await readJson(req);
+    const pl = state.playlists[String(body.playlistId)];
+    const t = pl && pl.tracks.find((x) => x.id === String(body.trackId));
+    if (!t) return sendJson(res, 404, { error: 'Track not found.' });
+    if (!t.readable) return sendJson(res, 400, { error: 'This track is not playable on Deezer.' });
+    const pickedFor = runtime.current ? runtime.current.seq : null;
+    state.queue = state.queue.filter((q) => q.track.id !== t.id);
+    let at = 0;
+    while (at < state.queue.length && state.queue[at].pickedFor === pickedFor) at++;
+    state.queue.splice(at, 0, { qid: crypto.randomUUID(), track: { ...t, playlistId: pl.id }, pickedFor });
+    store.save(state);
+    broadcast();
+    return sendJson(res, 200, { ok: true });
+  }
+
   if (m('POST', /^\/api\/queue\/roll$/)) {
     const added = rollDice();
     store.save(state);
