@@ -96,6 +96,7 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: 14px; col
 .pl-tracks { min-width: 0; border-left: 1px solid var(--border); padding-left: 16px; }
 .pl-tracks-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
 .pl-tracks-head h3 { font-size: 15px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-track-filter { width: 100%; margin: 6px 0 4px; }
 .pl-track-list { max-height: 480px; overflow-y: auto; padding-right: 4px; }
 .pl-track-list img { width: 32px; height: 32px; }
 .pl-track-list button { flex: none; white-space: nowrap; font-size: 13px; padding: 4px 10px; }

@@ -327,9 +327,14 @@ let loadingTracks = null;
 let lastPanelHtml = '';
 
 function setOpenPlaylist(id) {
+  if (id !== openPlaylistId) $('pl-track-filter').value = ''; // each opening starts unfiltered
   openPlaylistId = id;
   if (snap) render(snap);
+  if (id) $('pl-track-filter').focus();
 }
+
+// Case- and accent-insensitive, so "senorita" finds "Señorita".
+const foldText = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 async function loadTracks(p) {
   if (loadingTracks === p.id) return;
@@ -356,17 +361,20 @@ function renderTrackPanel(s) {
     return;
   }
   $('pl-tracks-title').textContent = p.title;
-  $('pl-tracks-count').textContent = `${p.trackCount} tracks`;
+  const filter = foldText($('pl-track-filter').value.trim());
 
   const cached = trackCache.get(p.id);
   let html;
   if (!cached || cached.fetchedAt !== p.fetchedAt) {
     loadTracks(p);
+    $('pl-tracks-count').textContent = '';
     html = '<li class="muted">Loading tracks…</li>';
   } else {
     const queuedAt = new Map(s.queue.map((q, i) => [q.track.id, i + 1]));
     const playingId = s.current && !s.current.endedAt ? s.current.track.id : null;
-    html = cached.tracks.map((t) => {
+    const shown = filter ? cached.tracks.filter((t) => foldText(t.title).includes(filter)) : cached.tracks;
+    $('pl-tracks-count').textContent = filter ? `${shown.length} of ${cached.tracks.length} tracks` : `${cached.tracks.length} tracks`;
+    html = shown.map((t) => {
       const mark = t.id === playingId ? '<span class="tag now">Playing</span>'
         : queuedAt.has(t.id) ? `<span class="tag">Queued #${queuedAt.get(t.id)}</span>` : '';
       return `
@@ -379,17 +387,24 @@ function renderTrackPanel(s) {
         ${mark}
         <button data-next="${esc(t.id)}" ${t.readable ? '' : 'disabled title="Not playable on Deezer"'}>Add to Next Queue</button>
       </li>`;
-    }).join('') || '<li class="muted">This playlist is empty.</li>';
+    }).join('') || `<li class="muted">${filter ? 'No titles match.' : 'This playlist is empty.'}</li>`;
   }
   if (html !== lastPanelHtml) {
     const list = $('pl-track-list');
-    const keepScroll = lastPanelHtml && list.dataset.playlist === p.id ? list.scrollTop : 0;
+    // Keep the scroll position on live updates; a new playlist or search starts at the top.
+    const same = lastPanelHtml && list.dataset.playlist === p.id && list.dataset.filter === filter;
+    const keepScroll = same ? list.scrollTop : 0;
     lastPanelHtml = html;
     list.innerHTML = html;
     list.dataset.playlist = p.id;
+    list.dataset.filter = filter;
     list.scrollTop = keepScroll;
   }
 }
+
+$('pl-track-filter').addEventListener('input', () => {
+  if (snap) renderTrackPanel(snap);
+});
 
 $('pl-track-list').onclick = (e) => {
   const btn = e.target.closest('button[data-next]');
