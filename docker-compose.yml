@@ -7,6 +7,9 @@ services:
       - "${HOST_PORT:-8787}:8080"
     volumes:
       - shuffler-data:/data
+    environment:
+      # Local time zone: history times and when "today's play time" resets at midnight.
+      TZ: ${TZ:-Europe/Berlin}
     restart: unless-stopped
 
 volumes:

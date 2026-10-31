@@ -6,30 +6,47 @@ async function getJson(url) {
   if (!res.ok) throw new Error(`Deezer API HTTP ${res.status}`);
   const body = await res.json();
   if (body && body.error) {
-    throw new Error(`Deezer API error: ${body.error.message || body.error.type}`);
+    const err = new Error(`Deezer API error: ${body.error.message || body.error.type}`);
+    err.deezerCode = body.error.code; // 800 = no data (missing or not public)
+    throw err;
   }
   return body;
 }
 
-// Accepts a numeric id, a deezer.com playlist URL, or a short share link
-// (link.deezer.com / deezer.page.link), which is resolved by following redirects.
-async function resolvePlaylistId(input) {
+// Rewords "no data" (unknown id, or not public) for people; other errors pass through.
+function notFound(message) {
+  return (err) => {
+    if (err.deezerCode === 800) throw new Error(message);
+    throw err;
+  };
+}
+
+const KIND_RE = /deezer\.com\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(track|playlist|album|artist|show|episode|profile)\/(\d+)/i;
+
+// Accepts a numeric id, a deezer.com URL of the wanted kind, or a short share
+// link (link.deezer.com / deezer.page.link) leading to one, resolved by
+// following redirects. Links to any other kind (album, artist, ...) are refused.
+async function resolveId(input, wanted, refusal, unknown) {
   const text = String(input || '').trim();
   if (/^\d+$/.test(text)) return text;
+  const kindOf = (url) => url.match(KIND_RE) || [];
 
-  let match = text.match(/playlist\/(\d+)/);
-  if (match) return match[1];
-
-  if (/^https?:\/\/(link\.deezer\.com|deezer\.page\.link)\//.test(text)) {
+  let [, kind, id] = kindOf(text);
+  if (!kind && /^https?:\/\/(link\.deezer\.com|deezer\.page\.link)\//.test(text)) {
     const res = await fetch(text, { redirect: 'follow' });
-    match = res.url.match(/playlist\/(\d+)/);
-    if (match) return match[1];
-    const html = await res.text();
-    match = html.match(/deezer\.com\/(?:[a-z]{2}\/)?playlist\/(\d+)/);
-    if (match) return match[1];
+    [, kind, id] = kindOf(res.url);
+    if (!kind) [, kind, id] = kindOf(await res.text());
   }
-  throw new Error('Could not recognize a playlist ID or URL.');
+  if (!kind) throw new Error(unknown);
+  if (kind.toLowerCase() !== wanted) throw new Error(refusal);
+  return id;
 }
+
+const resolvePlaylistId = (input) => resolveId(input, 'playlist',
+  'Only playlists (playlist links) are accepted.', 'Could not recognize a playlist URL or ID.');
+
+const resolveTrackId = (input) => resolveId(input, 'track',
+  'Only songs (track links) are accepted.', 'Could not recognize a song URL or ID.');
 
 function toTrack(t) {
   return {
@@ -44,7 +61,7 @@ function toTrack(t) {
 }
 
 async function fetchPlaylist(id) {
-  const meta = await getJson(`${API}/playlist/${id}`);
+  const meta = await getJson(`${API}/playlist/${id}`).catch(notFound('No public playlist with this ID.'));
   const tracks = [];
   let url = `${API}/playlist/${id}/tracks?limit=100&index=0`;
   while (url) {
@@ -70,7 +87,7 @@ async function fetchPreviewUrl(trackId) {
 }
 
 async function fetchTrack(trackId) {
-  return toTrack(await getJson(`${API}/track/${trackId}`));
+  return toTrack(await getJson(`${API}/track/${trackId}`).catch(notFound('No song with this ID.')));
 }
 
-module.exports = { resolvePlaylistId, fetchPlaylist, fetchPreviewUrl, fetchTrack };
+module.exports = { resolvePlaylistId, resolveTrackId, fetchPlaylist, fetchPreviewUrl, fetchTrack };

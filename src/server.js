@@ -7,19 +7,30 @@ const path = require('path');
 const crypto = require('crypto');
 const deezer = require('./deezer');
 const store = require('./store');
+const Shares = require('../public/shares');
 
 const PORT = Number(process.env.PORT || 8080);
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const POLL_TIMEOUT_MS = 25000;
 const SYNC_HOLD_MS = 1000;
 const PLAYER_ALIVE_MS = POLL_TIMEOUT_MS + 10000;
-const HISTORY_MAX = 100;
-const QUEUE_ROLL = 5; // tracks added per Rolling Dice
+const HISTORY_MAX = 500;
+const QUEUE_ROLL = 10; // tracks added per Rolling Dice / Flip Board (and when the queue runs empty)
 
 const state = store.load();
+// Older versions stored -1/0/+1 weights (½x, 1x, 2x); turn them into shares once.
+if (state.settings.playlistWeights) {
+  if (Object.keys(state.settings.playlistShares).length === 0) {
+    for (const id of state.settings.activePlaylistIds) {
+      state.settings.playlistShares[id] = 2 ** (Number(state.settings.playlistWeights[id]) || 0);
+    }
+  }
+  delete state.settings.playlistWeights;
+}
+state.settings.playlistShares = Shares.normalize(state.settings.playlistShares, state.settings.activePlaylistIds);
+
 const runtime = {
-  bag: [],
-  bagKey: '',
+  bags: {},                          // playlistId -> { key, ids } shuffle bag per playlist
   // Only the latest command matters. seq starts at boot time so it keeps
   // increasing across restarts and players never miss a command.
   command: { seq: Date.now(), cmd: null },
@@ -65,76 +76,131 @@ function shuffle(arr) {
   return arr;
 }
 
-// "Bag" shuffle: every track is drawn once before any repeats. Tracks that
-// are already queued or playing are never drawn again.
-// Playlist weight: -1, 0 or +1 (settings.playlistWeights).
-function weightOf(playlistId) {
-  const w = Math.round(Number(state.settings.playlistWeights[playlistId]) || 0);
-  return Math.max(-1, Math.min(1, w));
+// Playlist shares (settings.playlistShares): whole percentages per active
+// playlist that add up to 100. The next track comes from a playlist picked
+// by share, regardless of how many tracks it has; inside that playlist a
+// "bag" plays every track once before any repeats. Tracks that are already
+// queued or playing are never drawn again.
+function syncShares() {
+  state.settings.playlistShares = Shares.normalize(state.settings.playlistShares, state.settings.activePlaylistIds);
 }
 
-// One round of the bag. Weights change how often a track appears per round:
-// +1 = twice, 0 = once, -1 = in about half of the rounds. Over time a +1
-// playlist is heard about 2x as often and a -1 playlist about half as often.
-function buildBag(tracks, exclude) {
-  const bag = [];
-  for (const t of tracks) {
-    if (exclude.has(t.id)) continue;
-    const w = weightOf(t.playlistId);
-    const copies = w > 0 ? 2 : w < 0 ? (Math.random() < 0.5 ? 1 : 0) : 1;
-    for (let i = 0; i < copies; i++) bag.push(t.id);
-  }
-  return shuffle(bag);
+function playableIds(pid) {
+  const pl = state.playlists[pid];
+  return pl ? pl.tracks.filter((t) => t.readable).map((t) => t.id) : [];
 }
 
-function draw(n) {
-  const tracks = pool();
-  const byId = new Map(tracks.map((t) => [t.id, t]));
-  const key = tracks.map((t) => `${t.id}:${weightOf(t.playlistId)}`).sort().join(',');
-  if (key !== runtime.bagKey) {
-    runtime.bagKey = key;
-    runtime.bag = [];
+// Next track from one playlist's bag, or null if it has nothing left to offer.
+function drawFromPlaylist(pid, exclude) {
+  const ids = playableIds(pid);
+  const key = [...ids].sort().join(',');
+  let bag = runtime.bags[pid];
+  if (!bag || bag.key !== key) bag = runtime.bags[pid] = { key, ids: [] };
+  const valid = new Set(ids);
+  bag.ids = bag.ids.filter((id) => valid.has(id) && !exclude.has(id));
+  if (bag.ids.length === 0) bag.ids = shuffle(ids.filter((id) => !exclude.has(id)));
+  const id = bag.ids.pop();
+  if (!id) return null;
+  const t = state.playlists[pid].tracks.find((x) => x.id === id);
+  return { ...t, playlistId: pid };
+}
+
+// Picking never takes the previous playlist again right away. On its own
+// that pulls the mix toward equal, so the pick weights are corrected for it:
+// with weights w, the long-run mix is proportional to w_i * (W - w_i), and
+// this solves for weights whose long-run mix equals the shares. Exact when
+// no share is above 50%; a playlist above 50% ends up at about 50%, since
+// there are not enough other tracks to put between its own.
+function noRepeatWeights(shares) {
+  const ids = Object.keys(shares).filter((id) => shares[id] > 0);
+  const plain = Object.fromEntries(ids.map((id) => [id, shares[id] / 100]));
+  if (ids.length < 3) return plain; // with 2 playlists picks simply alternate
+
+  // Reachable target mix: a playlist above 50% is held just under 50%,
+  // and the others keep their proportions in the rest.
+  const target = { ...plain };
+  const top = ids.reduce((a, b) => (target[a] >= target[b] ? a : b));
+  if (target[top] >= 0.5) {
+    const rest = 1 - target[top];
+    target[top] = 0.49;
+    for (const id of ids) if (id !== top) target[id] = (plain[id] / rest) * 0.51;
   }
+
+  const w = { ...target };
+  for (let it = 0; it < 200; it++) {
+    const W = ids.reduce((s, id) => s + w[id], 0);
+    const mix = Object.fromEntries(ids.map((id) => [id, w[id] * (W - w[id])]));
+    const Z = ids.reduce((s, id) => s + mix[id], 0);
+    if (!(Z > 0)) break;
+    for (const id of ids) w[id] *= target[id] / (mix[id] / Z);
+    const sum = ids.reduce((s, id) => s + w[id], 0);
+    for (const id of ids) w[id] /= sum;
+  }
+  return ids.every((id) => Number.isFinite(w[id]) && w[id] > 0) ? w : plain;
+}
+
+// Draws n tracks. `prevPid` is the playlist of the track just before them.
+function draw(n, prevPid) {
+  const shares = state.settings.playlistShares;
+  const weights = noRepeatWeights(shares);
   const exclude = new Set(state.queue.map((q) => q.track.id));
   if (runtime.current) exclude.add(runtime.current.track.id);
-  runtime.bag = runtime.bag.filter((id) => byId.has(id));
+  const exhausted = new Set();
 
   const out = [];
-  const skipped = []; // second copies of tracks already queued or playing
-  let refilled = false;
+  let prev = prevPid;
   while (out.length < n) {
-    if (runtime.bag.length === 0) {
-      if (refilled) break; // nothing left that isn't already queued
-      refilled = true;
-      runtime.bag = buildBag(tracks, exclude);
-      // Only -1 playlists active and every coin flip lost: take them all.
-      if (runtime.bag.length === 0) runtime.bag = shuffle(tracks.map((t) => t.id).filter((id) => !exclude.has(id)));
-      if (runtime.bag.length === 0) break;
-    }
-    const id = runtime.bag.pop();
-    if (exclude.has(id)) {
-      skipped.push(id);
+    let candidates = state.settings.activePlaylistIds
+      .filter((pid) => (weights[pid] || 0) > 0 && !exhausted.has(pid));
+    // Not the same playlist twice in a row, unless it is the only one left.
+    if (candidates.some((pid) => pid !== prev)) candidates = candidates.filter((pid) => pid !== prev);
+    const total = candidates.reduce((s, pid) => s + weights[pid], 0);
+    if (total <= 0) break;
+    let r = Math.random() * total;
+    const pid = candidates.find((p) => (r -= weights[p]) < 0) || candidates[candidates.length - 1];
+    const track = drawFromPlaylist(pid, exclude);
+    if (!track) {
+      exhausted.add(pid); // everything in it is queued or playing: pick again without it
       continue;
     }
-    exclude.add(id);
-    out.push(byId.get(id));
+    exclude.add(track.id);
+    out.push(track);
+    prev = pid;
   }
-  // Skipped copies stay in this round, at random later positions.
-  for (const id of skipped) runtime.bag.splice(Math.floor(Math.random() * (runtime.bag.length + 1)), 0, id);
   return out;
 }
 
-// Tracks removed from the queue without playing go back into the bag.
+// Tracks removed from the queue without playing go back into their playlist's bag.
 function returnToBag(items) {
   for (const q of items) {
-    runtime.bag.splice(Math.floor(Math.random() * (runtime.bag.length + 1)), 0, q.track.id);
+    const bag = runtime.bags[q.track.playlistId];
+    if (bag) bag.ids.splice(Math.floor(Math.random() * (bag.ids.length + 1)), 0, q.track.id);
   }
 }
 
 // ---------- queue ----------
 
+// Avoids the same playlist (genre) twice in a row: when an item has the same
+// playlist as the one before it, it swaps places with the next item from a
+// different playlist. `prevPid` is the playlist of whatever plays just before.
+// If no different playlist is left, the remaining items stay as they are.
+function spreadPlaylists(items, prevPid) {
+  for (let i = 0; i < items.length; i++) {
+    const before = i === 0 ? prevPid : items[i - 1].track.playlistId;
+    if (!before || items[i].track.playlistId !== before) continue;
+    const j = items.findIndex((q, k) => k > i && q.track.playlistId !== before);
+    if (j === -1) break;
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
+}
+
 function rollDice() {
-  const added = draw(QUEUE_ROLL).map((track) => ({ qid: crypto.randomUUID(), track }));
+  const last = state.queue.length ? state.queue[state.queue.length - 1].track : runtime.current && runtime.current.track;
+  const prevPid = last && last.playlistId;
+  const added = draw(QUEUE_ROLL, prevPid).map((track) => ({ qid: crypto.randomUUID(), track }));
+  // Safety net for when only one playlist had tracks left to give.
+  spreadPlaylists(added, prevPid);
   state.queue.push(...added);
   return added.length;
 }
@@ -218,8 +284,7 @@ async function playNext() {
   const seq = sendCommand(cmd);
   runtime.current = { seq, track, playlistId: track.playlistId, startedAt: Date.now(), output };
   runtime.lastError = null;
-  state.history.unshift({ id: track.id, title: track.title, artist: track.artist, playlistId: track.playlistId, at: new Date().toISOString() });
-  state.history.length = Math.min(state.history.length, HISTORY_MAX);
+  addHistory(track);
   ensureQueue();
   store.save(state);
   broadcast();
@@ -232,6 +297,56 @@ function scheduleAdvance() {
   runtime.advanceTimer = setTimeout(() => {
     playNext().catch((e) => { runtime.lastError = e.message; broadcast(); });
   }, Math.max(0, state.settings.gapSeconds) * 1000);
+}
+
+// The playlist name is stored too, so entries keep it after the playlist is deleted.
+function addHistory(track, extra = {}) {
+  const pl = track.playlistId && state.playlists[track.playlistId];
+  state.history.unshift({
+    id: track.id, title: track.title, artist: track.artist,
+    playlistId: track.playlistId || null, playlistTitle: pl ? pl.title : '',
+    ...extra, at: new Date().toISOString(),
+  });
+  state.history.length = Math.min(state.history.length, HISTORY_MAX);
+}
+
+// Total play time counts while the player reports the current track playing
+// (not ads, not pauses). Status arrives about once a second; longer gaps are
+// not counted. Saved at most every 30s (and on shutdown). Today's play time
+// starts again from 0 at local midnight (TZ in docker-compose.yml).
+let statsSavedAt = 0;
+
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
+function statsView() {
+  return { playMs: state.stats.playMs, todayMs: state.stats.day === todayKey() ? state.stats.todayMs : 0 };
+}
+function countPlayTime(kind, p, status) {
+  const cur = runtime.current;
+  const now = Date.now();
+  const playing = !!(cur && cur.output === kind && status.playing && !cur.endedAt
+    && (kind === 'preview' ? status.seq === cur.seq
+      : status.songId === cur.track.id || (!!status.title && status.title === cur.track.title)));
+  if (playing && p.playingSince) {
+    const d = now - p.playingSince;
+    if (d > 0 && d < 5000) {
+      const day = todayKey();
+      if (state.stats.day !== day) {
+        state.stats.day = day;
+        state.stats.todayMs = 0;
+      }
+      state.stats.playMs += d;
+      state.stats.todayMs += d;
+    }
+    if (now - statsSavedAt > 30000) {
+      statsSavedAt = now;
+      store.save(state);
+    }
+  }
+  p.playingSince = playing ? now : null;
 }
 
 function findKnownTrack(id) {
@@ -269,8 +384,7 @@ function startExternal(ev) {
   // Don't play it twice: drop it from the queue if it was waiting there.
   state.queue = state.queue.filter((q) => q.track.id !== id);
   ensureQueue();
-  state.history.unshift({ id, title: track.title, artist: track.artist, playlistId: track.playlistId, external: true, at: new Date().toISOString() });
-  state.history.length = Math.min(state.history.length, HISTORY_MAX);
+  addHistory(track, { external: true });
   store.save(state);
 
   // Fill in artwork and length from the public API for tracks not in any playlist.
@@ -287,7 +401,10 @@ function handlePlayerEvent(ev) {
   const kind = ev.kind === 'preview' ? 'preview' : 'deezer';
   const p = (runtime.players[kind] ||= { lastSeen: 0, status: null });
   p.lastSeen = Date.now();
-  if (ev.status) p.status = ev.status;
+  if (ev.status) {
+    p.status = ev.status;
+    countPlayTime(kind, p, ev.status);
+  }
 
   const cur = runtime.current;
   const isCurrent = cur && cur.output === kind
@@ -308,8 +425,6 @@ function handlePlayerEvent(ev) {
 
 function snapshot() {
   const now = Date.now();
-  const poolCounts = {};
-  for (const t of pool()) poolCounts[t.playlistId] = (poolCounts[t.playlistId] || 0) + 1;
   const players = {};
   for (const [kind, p] of Object.entries(runtime.players)) {
     players[kind] = { connected: now - p.lastSeen < PLAYER_ALIVE_MS, status: p.status };
@@ -319,15 +434,17 @@ function snapshot() {
     playlists: Object.values(state.playlists).map((p) => ({
       id: p.id, title: p.title, creator: p.creator, picture: p.picture, link: p.link,
       trackCount: p.tracks.length, playableCount: p.tracks.filter((t) => t.readable).length,
-      poolCount: poolCounts[p.id] || 0, // tracks this playlist adds to the shuffle (duplicates counted once)
-      weight: weightOf(p.id),
+      share: p.id in state.settings.playlistShares ? state.settings.playlistShares[p.id] : null,
       fetchedAt: p.fetchedAt,
     })),
     poolSize: pool().length,
-    remainingInBag: runtime.bag.length,
+    remainingInBag: state.settings.activePlaylistIds.reduce((s, pid) => s + ((runtime.bags[pid] || {}).ids || []).length, 0),
     current: runtime.current,
     queue: state.queue,
-    history: state.history.slice(0, 30),
+    requests: state.requests,
+    // The full history is fetched from /api/history; this tells pages when it changed.
+    historyInfo: { count: state.history.length, latestAt: state.history.length ? state.history[0].at : null },
+    stats: statsView(),
     players,
     lastError: runtime.lastError,
   };
@@ -420,6 +537,7 @@ async function route(req, res, url) {
     const pl = await deezer.fetchPlaylist(id);
     state.playlists[pl.id] = pl;
     if (!state.settings.activePlaylistIds.includes(pl.id)) state.settings.activePlaylistIds.push(pl.id);
+    syncShares();
     ensureQueue();
     store.save(state);
     broadcast();
@@ -440,7 +558,7 @@ async function route(req, res, url) {
     delete state.playlists[r[1]];
     state.settings.activePlaylistIds = state.settings.activePlaylistIds.filter((id) => id !== r[1]);
     state.queue = state.queue.filter((q) => q.track.playlistId !== r[1]);
-    delete state.settings.playlistWeights[r[1]];
+    syncShares();
     ensureQueue();
     store.save(state);
     broadcast();
@@ -450,13 +568,8 @@ async function route(req, res, url) {
   if (m('PATCH', /^\/api\/settings$/)) {
     const body = await readJson(req);
     for (const k of SETTING_KEYS) if (k in body) state.settings[k] = body[k];
-    const weights = {};
-    for (const [id, w] of Object.entries(state.settings.playlistWeights || {})) {
-      const v = Math.max(-1, Math.min(1, Math.round(Number(w) || 0)));
-      if (state.playlists[id] && v !== 0) weights[id] = v;
-    }
-    state.settings.playlistWeights = weights;
     state.settings.activePlaylistIds = state.settings.activePlaylistIds.map(String).filter((id) => state.playlists[id]);
+    syncShares();
     ensureQueue();
     store.save(state);
     broadcast();
@@ -468,11 +581,95 @@ async function route(req, res, url) {
     return sendJson(res, 200, { track });
   }
 
+  if ((r = m('GET', /^\/api\/playlists\/(\d+)\/tracks$/))) {
+    const pl = state.playlists[r[1]];
+    if (!pl) return sendJson(res, 404, { error: 'Playlist not found.' });
+    return sendJson(res, 200, { id: pl.id, fetchedAt: pl.fetchedAt, tracks: pl.tracks });
+  }
+
+  // Puts a chosen track near the top of the queue. Picks made while the same
+  // track is playing line up in the order they were made (#1, #2, ...); once
+  // the next track starts, the next pick goes to #1 again. A track that was
+  // already queued moves up instead of appearing twice.
+  if (m('POST', /^\/api\/queue\/front$/)) {
+    const body = await readJson(req);
+    const pl = state.playlists[String(body.playlistId)];
+    const t = pl && pl.tracks.find((x) => x.id === String(body.trackId));
+    if (!t) return sendJson(res, 404, { error: 'Track not found.' });
+    if (!t.readable) return sendJson(res, 400, { error: 'This track is not playable on Deezer.' });
+    const pickedFor = runtime.current ? runtime.current.seq : null;
+    state.queue = state.queue.filter((q) => q.track.id !== t.id);
+    let at = 0;
+    while (at < state.queue.length && state.queue[at].pickedFor === pickedFor) at++;
+    state.queue.splice(at, 0, { qid: crypto.randomUUID(), track: { ...t, playlistId: pl.id }, pickedFor });
+    store.save(state);
+    broadcast();
+    return sendJson(res, 200, { ok: true });
+  }
+
   if (m('POST', /^\/api\/queue\/roll$/)) {
     const added = rollDice();
     store.save(state);
     broadcast();
     return sendJson(res, 200, { added });
+  }
+
+  // "Adding Song" panel: songs requested by URL or ID wait here, untouched by
+  // playback, until they are added to the queue or cleared.
+  if (m('POST', /^\/api\/requests$/)) {
+    const body = await readJson(req);
+    const id = await deezer.resolveTrackId(body.input);
+    if (state.requests.some((x) => x.track.id === id)) throw new Error('This song is already in the list.');
+    const known = findKnownTrack(id);
+    const t = known || { ...(await deezer.fetchTrack(id)), playlistId: null };
+    if (!t.readable) throw new Error(`"${t.title}" is not playable on Deezer.`);
+    state.requests.push({ rid: crypto.randomUUID(), track: t });
+    store.save(state);
+    broadcast();
+    return sendJson(res, 200, { track: t });
+  }
+
+  if ((r = m('DELETE', /^\/api\/requests\/([\w-]+)$/))) {
+    state.requests = state.requests.filter((x) => x.rid !== r[1]);
+    store.save(state);
+    broadcast();
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (m('POST', /^\/api\/requests\/clear$/)) {
+    state.requests = [];
+    store.save(state);
+    broadcast();
+    return sendJson(res, 200, { ok: true });
+  }
+
+  // Moves the requested songs into the queue without touching the current track:
+  // "first" puts them at #1, #2, ... (a song already queued moves up);
+  // "last" appends them (a song already queued stays where it is).
+  if (m('POST', /^\/api\/requests\/add$/)) {
+    const body = await readJson(req);
+    const items = state.requests.map((x) => ({ qid: crypto.randomUUID(), track: x.track }));
+    if (body.where === 'first') {
+      const ids = new Set(items.map((q) => q.track.id));
+      state.queue = [...items, ...state.queue.filter((q) => !ids.has(q.track.id))];
+    } else {
+      const queued = new Set(state.queue.map((q) => q.track.id));
+      state.queue.push(...items.filter((q) => !queued.has(q.track.id)));
+    }
+    state.requests = [];
+    store.save(state);
+    broadcast();
+    return sendJson(res, 200, { added: items.length });
+  }
+
+  if (m('GET', /^\/api\/history$/)) return sendJson(res, 200, { history: state.history, stats: statsView() });
+
+  // Clears the list only; the total play time is kept.
+  if (m('POST', /^\/api\/history\/clear$/)) {
+    state.history = [];
+    store.save(state);
+    broadcast();
+    return sendJson(res, 200, { ok: true });
   }
 
   if (m('POST', /^\/api\/queue\/flip$/)) {
@@ -537,6 +734,14 @@ async function route(req, res, url) {
 
 // Pre-fill the queue so tracks are ready before the first Next Track.
 if (state.queue.length === 0 && rollDice() > 0) store.save(state);
+
+// Docker stops the container with SIGTERM: write pending changes first.
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => {
+    store.flush();
+    process.exit(0);
+  });
+}
 
 http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');

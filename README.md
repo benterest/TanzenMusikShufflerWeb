@@ -20,12 +20,12 @@ docker compose up -d --build        # default port 8787 (change with: HOST_PORT=
 Then open http://localhost:8787 in your browser.
 
 ## Getting started
-1. Add a public playlist URL (or ID) in the control UI.
+1. Add a public playlist URL (or ID) in the control UI. Only playlist links are accepted (also short share links that lead to a playlist); anything else shows a red error below the field.
 2. Install [Tampermonkey](https://www.tampermonkey.net/). In Chrome, also turn on "Allow User Scripts" in the extension's details.
 3. Install the script from the "Install userscript" link in the control UI. The server address is filled in automatically at install time. To change it later, use "Change Shuffler server address" in the Tampermonkey menu.
 4. Open **exactly one** deezer.com tab, signed in, and click anywhere on the page once. This is required by the browser's autoplay policy.
 5. When Tampermonkey asks to allow access to the server, choose "Always allow".
-6. When the "Deezer tab" badge in the UI turns green, press ⏭ Next track.
+6. When the "Deezer tab" badge in the header turns green, press ⏭ Next track.
 
 If you switch the output to "30-second preview", you can listen in the control page itself without a Deezer account. This is meant for checking that everything works.
 
@@ -60,6 +60,11 @@ Patterns and tempos are defined in `public/steps.js`.
 The window opens sized to fill the screen. If a second screen (projector) is connected, Chrome can move it there; Chrome asks once for the "window management" permission. Browsers only allow fullscreen after a user action, so click the window once, or press **F** (double-click also toggles fullscreen). The page keeps the screen awake and hides the mouse cursor while it is idle. It only reads state and never controls playback, so you can open it on any device in the same network.
 
 ## Settings
+Settings open in a modal from the ⚙ gear in the header, next to the connection badges. Close it with ✕ Close, Esc, or a click outside it. It has three tabs:
+- **Settings**: choices on the left (output, auto-play, footprints), numbers on the right (max play time, fade-out, gap).
+- **Connect Deezer**: the connection badges again, and the userscript setup steps.
+- **History**: the last 500 played tracks in a compact table (time and date as `21:54:37 31/10/2026`, playlist or "Requested"/"Picked in Deezer", track), with **Clear history**, the **total play time** and **today's play time**. Play time counts only while the player reports the current track playing (not ads or pauses). Clearing the history keeps both totals; today's play time starts again from 0 at local midnight. The time zone is set by `TZ` in `docker-compose.yml` (default `Europe/Berlin`).
+
 | Setting | Description |
 |---|---|
 | Automatically play the next track | Picks the next track automatically when one ends |
@@ -67,15 +72,24 @@ The window opens sized to fill the screen. If a second screen (projector) is con
 | Fade-out / Gap between tracks | Fade length when a max play time is set, and the wait before the next track starts |
 
 ## Queue
-The "Up next" panel, to the right of Settings, holds the upcoming tracks. Five tracks are queued automatically whenever the queue is empty, including at startup and after adding a playlist.
+The "Up next" panel, below Now Playing, holds the upcoming tracks. Ten tracks are queued automatically whenever the queue is empty, including at startup and after adding a playlist.
 
 | Control | What it does |
 |---|---|
-| ⏭ Next track | Plays the track at the top of the queue. If the queue runs out, 5 more are drawn automatically |
-| 🎲 Rolling Dice | Draws 5 new random tracks and adds them to the end of the queue |
+| ⏭ Next track | Plays the track at the top of the queue. If the queue runs out, 10 more are drawn automatically |
+| 🎲 Rolling Dice | Draws 10 new random tracks and adds them to the end of the queue |
 | 🔄 Flip Board | Clears the queue, then runs Rolling Dice |
 | Drag and drop, ↑ ↓ | Changes the order (priority) of queued tracks |
 | ✕ | Removes a track from the queue |
+| ➕ Adding Song | Opens a panel in the right half of Up next for collecting songs by Deezer song URL or ID (see below) |
+
+### Adding songs by URL or ID
+**➕ Adding Song** opens a panel next to Up next. Paste a Deezer song link (`deezer.com/…/track/…`, or a short share link that leads to a song) or a song ID and press **Request**. Only songs are accepted; playlist, album or artist links are refused, as are songs that aren't playable. Requested songs collect in the panel's list. The list is kept on the server and doesn't change Up next. It stays across track changes, page reloads and other open control pages until you act on it:
+- **Add them to #1** inserts the songs at the top of Up next, in list order, without interrupting the current track. The rest of the queue moves down; a song that was already queued moves up instead of appearing twice.
+- **Add them to LAST** appends them to the end of Up next. The existing order doesn't change; a song that was already queued stays where it is.
+- **Clear** empties the list. ✕ removes a single song.
+
+Songs that aren't in any of your playlists show as "Requested" in Up next.
 
 ### Picking a song directly in Deezer
 If you pick a song yourself in the Deezer tab, the userscript notices it and tells the server. The picked song becomes the current track, and the control page and the dance hall display show it ("Picked in Deezer"). The queue stays as it is; if the picked song was waiting in the queue, it is removed so it won't play twice. When the picked song ends, playback continues from the top of the queue.
@@ -85,15 +99,25 @@ How a direct pick is told apart from Deezer switching songs by itself:
 - Ads (player type ads/jingle) are ignored.
 - When the previous track was in its last 3 seconds, the switch counts as that track ending (e.g. Deezer's autoplay). Changes in the 10 seconds after a track ends are not treated as picks.
 
-### Playlist weights
-Each playlist has a 3-position slider: **−1 / 0 / +1** (default 0). It changes how often a playlist's tracks are drawn, so you can play some genres more and others less:
-- **+1 (2×)**: each track goes into the bag twice per round, so it is heard about twice as often.
-- **0 (1×)**: once per round.
-- **−1 (½×)**: each track goes into about half of the rounds.
+### Playlist tracks
+The ▾ button at the right end of each playlist row opens that playlist's tracks in the right half of the Playlists card (scrollable for long playlists). A search box above the list filters it by title as you type (ignoring case and accents); it is cleared after Add to Next Queue and whenever the panel closes. Tracks that are playing or already queued are marked. **Add to Next Queue** puts a track at the top of the queue, so it plays next. Picks made while the same track is playing line up in the order they were made (#1, #2, #3, …) and are tagged "Picked" in Up next; once the next track starts, the next pick goes to #1 again. A track that was already queued moves up instead of appearing twice. The panel then closes. Pressing ▴ or Esc also closes it.
 
-Each playlist row shows its expected share of picks (e.g. "≈ 45% of picks"). In a test with 3,000 draws, +1 tracks were picked 1.92× and −1 tracks 0.57× as often as weight-0 tracks.
+### Playlist shares
+Each active playlist has a 0–100% slider: its chance of supplying the next track. The next track is picked in two steps: first a playlist, by its share, regardless of how many tracks it has; then a random track inside that playlist.
 
-Tracks are drawn from a shuffle "bag": every track across the active playlists (duplicates removed) is drawn once per round (adjusted by weight) before the bag is reshuffled. A track that is already queued or playing is never drawn again. Tracks removed by ✕ or Flip Board go back into the bag unplayed, so they can still come up later. The queue is saved in `/data` and survives restarts.
+- All active playlists always add up to 100%. Shares are whole numbers and never go below 0% or above 100%.
+- Moving one slider changes the others equally to make up the difference. They update live while you drag, and the result is saved when you release. Once a playlist reaches 0%, the rest is taken from the others.
+- A newly added (or newly checked) playlist gets the median of the existing shares, at most 50%, and takes that amount equally from the others. Unchecking or deleting a playlist gives its share back to the others equally.
+- With only one active playlist, it is fixed at 100%. Unchecked playlists show "—".
+- The same playlist (genre) never plays twice in a row, unless it is the only one with tracks left. Picking skips the previous playlist, and the pick weights are corrected for that, so over time each playlist still plays at its share. A share above 50% can't be reached this way, since there aren't enough other tracks to put between its own; it plays about 50% of the time, and the control page says so. As a safety net, a batch from Rolling Dice or Flip Board that still has two of the same genre in a row swaps the second one with the next track from a different genre.
+- A small playlist with a high share repeats its tracks more often. Within a playlist, every track plays once before any repeats.
+
+The share rules are in `public/shares.js`, used by both the server and the control page.
+
+Each playlist has its own shuffle "bag": every track in it is drawn once before the bag is reshuffled. A track that is already queued or playing is never drawn again. Tracks removed by ✕ or Flip Board go back into the bag unplayed, so they can still come up later. The queue is saved in `/data` and survives restarts.
+
+### Deezer's repeat setting
+Each track is played in Deezer as a one-track list. With Deezer's repeat on (player bar or Queue tab), Deezer would start that same track again when it ends, so the userscript keeps repeat **off** while it controls playback (this changes the repeat setting in your Deezer account). If repeat can't be switched off, a track that jumps from its end back to the start still counts as ended, and the next track follows within a fraction of a second.
 
 ## Limitations
 - **Deezer Free accounts**: on the web you can usually pick individual tracks, but ads play. In some countries (such as the US) only 30-second previews are allowed. When that is the case, the UI badge shows "30s-limited account". If an ad delays the start of a track, the userscript keeps retrying for up to 90 seconds.

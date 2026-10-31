@@ -57,23 +57,27 @@ function renderTime() {
 }
 setInterval(renderTime, 250);
 
-const WEIGHT_LABELS = ['½×', '1×', '2×'];
 let lastPlaylistsHtml = '';
+let shareDrag = null; // { base, next } while a share slider is being moved
 
 function render(s) {
   snap = s;
   const plTitle = (id) => (s.playlists.find((p) => p.id === id) || {}).title || '';
 
   // badges
+  // The connection badges appear in the header and again in the Connect Deezer tab.
   const dz = s.players.deezer;
-  const bd = $('badge-deezer');
-  bd.className = 'badge' + (dz && dz.connected ? (dz.status && dz.status.activated === false ? ' warn' : ' ok') : '');
-  bd.textContent = dz && dz.connected
-    ? (dz.status && dz.status.limited ? 'Deezer tab (30s-limited account)' : 'Deezer tab connected')
-    : 'No Deezer tab';
   const pv = s.players.preview;
-  $('badge-preview').className = 'badge' + (pv && pv.connected ? ' ok' : '');
-  $('badge-preview').textContent = pv && pv.connected ? 'Preview player connected' : 'No preview player';
+  for (const el of document.querySelectorAll('[data-badge="deezer"]')) {
+    el.className = 'badge' + (dz && dz.connected ? (dz.status && dz.status.activated === false ? ' warn' : ' ok') : '');
+    el.textContent = dz && dz.connected
+      ? (dz.status && dz.status.limited ? 'Deezer tab (30s-limited account)' : 'Deezer tab connected')
+      : 'No Deezer tab';
+  }
+  for (const el of document.querySelectorAll('[data-badge="preview"]')) {
+    el.className = 'badge' + (pv && pv.connected ? ' ok' : '');
+    el.textContent = pv && pv.connected ? 'Preview player connected' : 'No preview player';
+  }
 
   // now playing
   const cur = s.current;
@@ -82,7 +86,7 @@ function render(s) {
   $('np-artist').textContent = t ? t.artist : '';
   $('np-playlist').textContent = !t ? ''
     : cur.external ? 'Picked in Deezer · the queue continues after this track'
-    : `${plTitle(cur.playlistId)} · ${cur.output === 'preview' ? 'Preview' : 'Deezer'}`;
+    : `${cur.playlistId ? plTitle(cur.playlistId) : 'Requested'} · ${cur.output === 'preview' ? 'Preview' : 'Deezer'}`;
   $('np-cover').hidden = !(t && t.cover);
   if (t && t.cover) $('np-cover').src = t.cover;
 
@@ -101,41 +105,48 @@ function render(s) {
 
   // playlists
   $('pool').textContent = `· ${s.poolSize} tracks in the shuffle, ${s.remainingInBag} left in this round`;
-  // Expected share of picks: tracks in the shuffle x weight multiplier (½, 1, 2).
-  const pickWeight = (p) => (s.settings.activePlaylistIds.includes(p.id) ? p.poolCount * 2 ** p.weight : 0);
-  const totalWeight = s.playlists.reduce((sum, p) => sum + pickWeight(p), 0);
+  // The same playlist never plays twice in a row, so more than half cannot be reached.
+  const overHalf = s.playlists.find((p) => p.share > 50);
+  $('share-note').hidden = !overHalf;
+  if (overHalf) $('share-note').textContent = `${overHalf.title} is set above 50%. The same playlist never plays twice in a row, so it plays about 50% of the time.`;
+  // Share slider: % chance that the next track comes from this playlist.
+  // Fixed at 100% when only one playlist is active; unused when inactive.
+  const activeCount = s.playlists.filter((p) => p.share !== null).length;
   const html = s.playlists.length
     ? s.playlists.map((p) => {
-      const share = totalWeight ? Math.round((pickWeight(p) / totalWeight) * 100) : 0;
+      const off = p.share === null;
       return `
       <li>
         <input type="checkbox" data-toggle="${p.id}" ${s.settings.activePlaylistIds.includes(p.id) ? 'checked' : ''} title="Include in shuffle">
         ${p.picture ? `<img src="${esc(p.picture)}" alt="">` : ''}
         <div class="grow">
           <div><a href="${esc(p.link)}" target="_blank" rel="noopener">${esc(p.title)}</a></div>
-          <div class="muted small">${esc(p.creator)} · ${p.playableCount}/${p.trackCount} tracks playable${pickWeight(p) ? ` · ≈ ${share}% of picks` : ''}</div>
+          <div class="muted small">${esc(p.creator)} · ${p.playableCount}/${p.trackCount} tracks playable</div>
         </div>
-        <label class="weight" title="Weight: how often this playlist is picked (−1 ≈ half as often, +1 ≈ twice as often)">
-          <input type="range" min="-1" max="1" step="1" value="${p.weight}" data-weight="${p.id}" aria-label="Weight for ${esc(p.title)}">
-          <span class="weight-value w${p.weight + 1}">${WEIGHT_LABELS[p.weight + 1]}</span>
+        <label class="share${off ? ' off' : ''}" title="Chance that the next track comes from this playlist. All active playlists add up to 100%.">
+          <input type="range" min="0" max="100" step="1" value="${off ? 0 : p.share}" data-share="${p.id}"
+            ${off || activeCount < 2 ? 'disabled' : ''} aria-label="Share for ${esc(p.title)}">
+          <span class="share-value" data-share-label="${p.id}">${off ? '—' : `${p.share}%`}</span>
         </label>
         <button class="icon" data-refresh="${p.id}" title="Reload">↻</button>
         <button class="icon" data-delete="${p.id}" title="Delete">✕</button>
+        <button class="icon toggle" data-tracks="${p.id}" aria-expanded="${p.id === openPlaylistId}" title="Show tracks">${p.id === openPlaylistId ? '▴' : '▾'}</button>
       </li>`;
     }).join('')
     : '<li class="muted">Add a public playlist to get started.</li>';
-  // Rebuild only on change, so a slider being dragged is not replaced mid-drag.
-  if (html !== lastPlaylistsHtml) {
+  // Rebuild only on change and never mid-drag, so a slider is not replaced under the pointer.
+  if (html !== lastPlaylistsHtml && !shareDrag) {
     lastPlaylistsHtml = html;
     $('playlists').innerHTML = html;
   }
+  renderTrackPanel(s);
 
   if (!dragQid) renderQueue(s);
+  renderRequests(s);
 
-  // history
-  $('history').innerHTML = s.history.map((h) => `
-    <li><div class="grow"><div>${esc(h.title)} <span class="muted">— ${esc(h.artist)}</span></div>
-    <div class="muted small">${new Date(h.at).toLocaleTimeString()} · ${h.external ? 'Picked in Deezer' : esc(plTitle(h.playlistId))}</div></div></li>`).join('');
+  $('play-total').textContent = fmtTotal(s.stats.playMs);
+  $('play-today').textContent = fmtTotal(s.stats.todayMs);
+  refreshHistory(s);
 }
 
 function renderQueue(s) {
@@ -149,8 +160,9 @@ function renderQueue(s) {
         ${q.track.cover ? `<img src="${esc(q.track.cover)}" alt="" draggable="false">` : ''}
         <div class="grow">
           <div>${esc(q.track.title)}</div>
-          <div class="muted small">${esc(q.track.artist)} · ${esc(plTitle(q.track.playlistId))}</div>
+          <div class="muted small">${esc(q.track.artist)} · ${q.track.playlistId ? esc(plTitle(q.track.playlistId)) : 'Requested'}</div>
         </div>
+        ${q.pickedFor !== undefined && q.pickedFor === (s.current ? s.current.seq : null) ? '<span class="tag" title="Added with Add to Next Queue during this track">Picked</span>' : ''}
         <span class="dur">${fmt(q.track.duration)}</span>
         <div class="acts">
           <button data-move="-1" title="Move up" ${i === 0 ? 'disabled' : ''}>↑</button>
@@ -160,6 +172,132 @@ function renderQueue(s) {
       </li>`).join('')
     : '<li class="muted">The queue is empty. Press 🎲 Rolling Dice.</li>';
 }
+
+// ---------- History tab ----------
+// The full history is fetched only while the History tab is open, and again
+// whenever the snapshot says it changed.
+
+let historyKey = '';
+
+function fmtTotal(ms) {
+  const m = Math.floor((ms || 0) / 60000);
+  const h = Math.floor(m / 60);
+  return h ? `${h}h ${m % 60}m` : `${m}m ${Math.floor(((ms || 0) % 60000) / 1000)}s`;
+}
+
+// European style: 21:54:37 31/10/2026
+function fmtPlayed(iso) {
+  const d = new Date(iso);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())} ${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
+async function refreshHistory(s, force) {
+  if ($('panel-history').hidden || !settingsDialog.open) return;
+  const key = `${s.historyInfo.count}|${s.historyInfo.latestAt}`;
+  if (key === historyKey && !force) return;
+  historyKey = key;
+  try {
+    const { history } = await api('GET', 'api/history');
+    const plTitle = (h) => (s.playlists.find((p) => p.id === h.playlistId) || {}).title || h.playlistTitle || '';
+    $('history-count').textContent = `${history.length} track${history.length === 1 ? '' : 's'}`;
+    $('history').innerHTML = history.length
+      ? history.map((h) => {
+        const src = h.external ? '<span class="src-other">Picked in Deezer</span>'
+          : h.playlistId ? esc(plTitle(h)) : '<span class="src-other">Requested</span>';
+        return `<tr><td>${fmtPlayed(h.at)}</td><td>${src}</td><td>${esc(h.title)} <span class="artist">— ${esc(h.artist)}</span></td></tr>`;
+      }).join('')
+      : '<tr><td colspan="3" class="muted">Nothing played yet.</td></tr>';
+  } catch (e) {
+    historyKey = '';
+    $('history').innerHTML = `<tr><td colspan="3" class="muted">${esc(e.message)}</td></tr>`;
+  }
+}
+
+$('history-clear').onclick = () => {
+  if (!confirm('Clear the play history? The total play time is kept.')) return;
+  act(() => api('POST', 'api/history/clear'));
+};
+
+// ---------- Adding Song panel ----------
+// Songs requested by URL or ID wait in a server-side list (shared by every
+// open control page) until they are added to Up next or cleared.
+
+let requestsOpen = null; // null until the first snapshot: opens by itself when songs are waiting
+let lastReqHtml = '';
+
+function setRequestsOpen(open) {
+  requestsOpen = open;
+  showReqError('');
+  if (snap) renderRequests(snap);
+  if (open) $('req-input').focus();
+}
+
+function showReqError(msg) {
+  $('req-error').hidden = !msg;
+  $('req-error').textContent = msg || '';
+}
+
+function renderRequests(s) {
+  if (requestsOpen === null) requestsOpen = s.requests.length > 0;
+  $('q-layout').classList.toggle('open', requestsOpen);
+  $('req-panel').hidden = !requestsOpen;
+  $('btn-requests').setAttribute('aria-expanded', String(requestsOpen));
+
+  const n = s.requests.length;
+  $('req-count').textContent = n ? `${n} song${n === 1 ? '' : 's'}` : '';
+  for (const id of ['req-first', 'req-last', 'req-clear']) $(id).disabled = !n;
+  const queuedAt = new Map(s.queue.map((q, i) => [q.track.id, i + 1]));
+  const html = n
+    ? s.requests.map((x) => `
+      <li>
+        ${x.track.cover ? `<img src="${esc(x.track.cover)}" alt="">` : ''}
+        <div class="grow">
+          <div>${esc(x.track.title)}</div>
+          <div class="muted small">${esc(x.track.artist)} · ${fmt(x.track.duration)}</div>
+        </div>
+        ${queuedAt.has(x.track.id) ? `<span class="tag" title="Already in Up next">In Up next #${queuedAt.get(x.track.id)}</span>` : ''}
+        <button class="icon" data-remove-req="${esc(x.rid)}" title="Remove from this list">✕</button>
+      </li>`).join('')
+    : '<li class="muted empty">Paste a Deezer song link (or its ID) and press Request.</li>';
+  if (html !== lastReqHtml) {
+    lastReqHtml = html;
+    $('req-list').innerHTML = html;
+  }
+}
+
+async function reqAction(btn, fn) {
+  btn.disabled = true;
+  showReqError('');
+  try {
+    await fn();
+  } catch (e) {
+    showReqError(e.message);
+  } finally {
+    btn.disabled = false;
+    if (snap) renderRequests(snap);
+  }
+}
+
+$('btn-requests').onclick = () => setRequestsOpen(!requestsOpen);
+
+$('req-form').onsubmit = (e) => {
+  e.preventDefault();
+  reqAction(e.submitter, async () => {
+    await api('POST', 'api/requests', { input: $('req-input').value });
+    $('req-input').value = '';
+    $('req-input').focus();
+  });
+};
+
+$('req-list').onclick = (e) => {
+  const btn = e.target.closest('button[data-remove-req]');
+  if (btn) reqAction(btn, () => api('DELETE', `api/requests/${encodeURIComponent(btn.dataset.removeReq)}`));
+};
+
+$('req-first').onclick = (e) => reqAction(e.currentTarget, () => api('POST', 'api/requests/add', { where: 'first' }));
+$('req-last').onclick = (e) => reqAction(e.currentTarget, () => api('POST', 'api/requests/add', { where: 'last' }));
+$('req-clear').onclick = (e) => reqAction(e.currentTarget, () => api('POST', 'api/requests/clear'));
 
 // ---------- queue editing ----------
 
@@ -249,6 +387,41 @@ function connectEvents() {
   };
 }
 
+// Settings live in a modal opened from the gear in the header, with three
+// tabs: Settings, Connect Deezer, History. It closes with the Close button,
+// Esc (built into <dialog>) or a click on the backdrop.
+const settingsDialog = $('settings-dialog');
+const TABS = ['settings', 'connect', 'history'];
+
+function showTab(name) {
+  for (const t of TABS) {
+    const on = t === name;
+    $(`tab-${t}`).setAttribute('aria-selected', String(on));
+    $(`tab-${t}`).tabIndex = on ? 0 : -1;
+    $(`panel-${t}`).hidden = !on;
+  }
+  if (name === 'history' && snap) refreshHistory(snap, true);
+}
+for (const t of TABS) $(`tab-${t}`).onclick = () => showTab(t);
+// Arrow keys move between tabs (standard tablist behaviour).
+document.querySelector('.tabs').addEventListener('keydown', (e) => {
+  const i = TABS.findIndex((t) => $(`tab-${t}`).getAttribute('aria-selected') === 'true');
+  const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+  if (!d) return;
+  const next = TABS[(i + d + TABS.length) % TABS.length];
+  showTab(next);
+  $(`tab-${next}`).focus();
+});
+
+$('btn-settings').onclick = () => {
+  showTab('settings');
+  settingsDialog.showModal();
+};
+$('settings-close').onclick = () => settingsDialog.close();
+settingsDialog.addEventListener('click', (e) => {
+  if (e.target === settingsDialog) settingsDialog.close(); // the backdrop, outside .modal-body
+});
+
 $('btn-next').onclick = () => act(() => api('POST', 'api/next'));
 // Opens the display-only window filling a screen. Prefers a second screen
 // (projector) when the browser supports the Window Management API.
@@ -274,33 +447,160 @@ $('btn-pause').onclick = () => act(() => api('POST', 'api/pause'));
 $('btn-resume').onclick = () => act(() => api('POST', 'api/resume'));
 $('btn-stop').onclick = () => act(() => api('POST', 'api/stop'));
 
-$('add-form').onsubmit = (e) => {
+// Errors for the playlist field show in red right below it.
+function showPlaylistError(msg) {
+  $('pl-error').hidden = !msg;
+  $('pl-error').textContent = msg || '';
+}
+
+$('add-form').onsubmit = async (e) => {
   e.preventDefault();
   const btn = e.submitter;
   btn.disabled = true;
-  act(async () => {
+  showPlaylistError('');
+  try {
     await api('POST', 'api/playlists', { input: $('add-input').value });
     $('add-input').value = '';
+  } catch (err) {
+    showPlaylistError(err.message);
+  } finally {
+    btn.disabled = false;
+  }
+};
+$('add-input').addEventListener('input', () => showPlaylistError(''));
+
+// Share sliders: moving one updates every other slider and percentage live
+// (see shares.js); the result is saved when the slider is released.
+function showShares(shares) {
+  for (const [id, v] of Object.entries(shares)) {
+    const input = $('playlists').querySelector(`input[data-share="${id}"]`);
+    const label = $('playlists').querySelector(`[data-share-label="${id}"]`);
+    if (input && Number(input.value) !== v) input.value = v;
+    if (label) label.textContent = `${v}%`;
+  }
+}
+$('playlists').addEventListener('input', (e) => {
+  const id = e.target.dataset.share;
+  if (!id) return;
+  // Always start from the shares before this drag, so moving back and forth is reversible.
+  if (!shareDrag) shareDrag = { base: { ...snap.settings.playlistShares }, next: null };
+  shareDrag.next = Shares.setShare(shareDrag.base, id, Number(e.target.value));
+  showShares(shareDrag.next);
+  e.target.value = shareDrag.next[id]; // e.g. cannot go above what the others can give
+});
+$('playlists').addEventListener('change', (e) => {
+  if (!e.target.dataset.share || !shareDrag) return;
+  const shares = shareDrag.next;
+  shareDrag = null;
+  snap.settings.playlistShares = shares;
+  act(() => api('PATCH', 'api/settings', { playlistShares: shares }));
+});
+
+// ---------- playlist track panel ----------
+
+let openPlaylistId = null;
+const trackCache = new Map(); // playlistId -> { fetchedAt, tracks }
+let loadingTracks = null;
+let lastPanelHtml = '';
+
+function setOpenPlaylist(id) {
+  if (id !== openPlaylistId) $('pl-track-filter').value = ''; // each opening starts unfiltered
+  openPlaylistId = id;
+  if (snap) render(snap);
+  if (id) $('pl-track-filter').focus();
+}
+
+// Case- and accent-insensitive, so "senorita" finds "Señorita".
+const foldText = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+async function loadTracks(p) {
+  if (loadingTracks === p.id) return;
+  loadingTracks = p.id;
+  try {
+    const data = await api('GET', `api/playlists/${p.id}/tracks`);
+    trackCache.set(p.id, { fetchedAt: data.fetchedAt, tracks: data.tracks });
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    loadingTracks = null;
+    if (snap) render(snap);
+  }
+}
+
+// Right half of the Playlists card: the open playlist's tracks.
+function renderTrackPanel(s) {
+  const p = openPlaylistId && s.playlists.find((x) => x.id === openPlaylistId);
+  if (!p) openPlaylistId = null;
+  $('pl-layout').classList.toggle('open', !!p);
+  $('pl-tracks').hidden = !p;
+  if (!p) {
+    lastPanelHtml = '';
+    return;
+  }
+  $('pl-tracks-title').textContent = p.title;
+  const filter = foldText($('pl-track-filter').value.trim());
+
+  const cached = trackCache.get(p.id);
+  let html;
+  if (!cached || cached.fetchedAt !== p.fetchedAt) {
+    loadTracks(p);
+    $('pl-tracks-count').textContent = '';
+    html = '<li class="muted">Loading tracks…</li>';
+  } else {
+    const queuedAt = new Map(s.queue.map((q, i) => [q.track.id, i + 1]));
+    const playingId = s.current && !s.current.endedAt ? s.current.track.id : null;
+    const shown = filter ? cached.tracks.filter((t) => foldText(t.title).includes(filter)) : cached.tracks;
+    $('pl-tracks-count').textContent = filter ? `${shown.length} of ${cached.tracks.length} tracks` : `${cached.tracks.length} tracks`;
+    html = shown.map((t) => {
+      const mark = t.id === playingId ? '<span class="tag now">Playing</span>'
+        : queuedAt.has(t.id) ? `<span class="tag">Queued #${queuedAt.get(t.id)}</span>` : '';
+      return `
+      <li${t.readable ? '' : ' class="unplayable"'}>
+        ${t.cover ? `<img src="${esc(t.cover)}" alt="" loading="lazy">` : ''}
+        <div class="grow">
+          <div>${esc(t.title)}</div>
+          <div class="muted small">${esc(t.artist)} · ${fmt(t.duration)}</div>
+        </div>
+        ${mark}
+        <button data-next="${esc(t.id)}" ${t.readable ? '' : 'disabled title="Not playable on Deezer"'}>Add to Next Queue</button>
+      </li>`;
+    }).join('') || `<li class="muted">${filter ? 'No titles match.' : 'This playlist is empty.'}</li>`;
+  }
+  if (html !== lastPanelHtml) {
+    const list = $('pl-track-list');
+    // Keep the scroll position on live updates; a new playlist or search starts at the top.
+    const same = lastPanelHtml && list.dataset.playlist === p.id && list.dataset.filter === filter;
+    const keepScroll = same ? list.scrollTop : 0;
+    lastPanelHtml = html;
+    list.innerHTML = html;
+    list.dataset.playlist = p.id;
+    list.dataset.filter = filter;
+    list.scrollTop = keepScroll;
+  }
+}
+
+$('pl-track-filter').addEventListener('input', () => {
+  if (snap) renderTrackPanel(snap);
+});
+
+$('pl-track-list').onclick = (e) => {
+  const btn = e.target.closest('button[data-next]');
+  if (!btn) return;
+  const playlistId = openPlaylistId;
+  btn.disabled = true;
+  act(async () => {
+    await api('POST', 'api/queue/front', { playlistId, trackId: btn.dataset.next });
+    setOpenPlaylist(null);
   }).finally(() => { btn.disabled = false; });
 };
 
-// Weight slider: update the label while dragging, save when released.
-$('playlists').addEventListener('input', (e) => {
-  if (!e.target.dataset.weight) return;
-  const v = Number(e.target.value);
-  const label = e.target.nextElementSibling;
-  label.textContent = WEIGHT_LABELS[v + 1];
-  label.className = `weight-value w${v + 1}`;
-});
-$('playlists').addEventListener('change', (e) => {
-  const id = e.target.dataset.weight;
-  if (!id) return;
-  const weights = { ...snap.settings.playlistWeights, [id]: Number(e.target.value) };
-  act(() => api('PATCH', 'api/settings', { playlistWeights: weights }));
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && openPlaylistId) setOpenPlaylist(null);
 });
 
 $('playlists').onclick = (e) => {
   const d = e.target.dataset;
+  if (d.tracks) setOpenPlaylist(openPlaylistId === d.tracks ? null : d.tracks);
   if (d.refresh) act(() => api('POST', `api/playlists/${d.refresh}/refresh`));
   if (d.delete && confirm('Delete this playlist?')) act(() => api('DELETE', `api/playlists/${d.delete}`));
   if (d.toggle) {
