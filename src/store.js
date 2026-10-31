@@ -13,7 +13,7 @@ const DEFAULT_SETTINGS = {
   fadeSeconds: 3,
   gapSeconds: 2,
   showSteps: true,      // dance step footprints on the display page
-  playlistWeights: {},  // playlistId -> -1 | 1 (missing = 0)
+  playlistShares: {},   // active playlistId -> % chance of supplying the next track (sum 100)
 };
 
 function load() {
@@ -32,14 +32,27 @@ function load() {
 }
 
 let saveTimer = null;
-function save(state) {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    const tmp = FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
-    fs.renameSync(tmp, FILE);
-  }, 200);
+let pending = null;
+
+function write(state) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  const tmp = FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
+  fs.renameSync(tmp, FILE);
 }
 
-module.exports = { load, save };
+// Saves are batched for 200ms.
+function save(state) {
+  pending = state;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flush, 200);
+}
+
+// Writes a batched save right away (e.g. when the server is stopped).
+function flush() {
+  clearTimeout(saveTimer);
+  if (pending) write(pending);
+  pending = null;
+}
+
+module.exports = { load, save, flush };

@@ -57,8 +57,8 @@ function renderTime() {
 }
 setInterval(renderTime, 250);
 
-const WEIGHT_LABELS = ['½×', '1×', '2×'];
 let lastPlaylistsHtml = '';
+let shareDrag = null; // { base, next } while a share slider is being moved
 
 function render(s) {
   snap = s;
@@ -101,31 +101,32 @@ function render(s) {
 
   // playlists
   $('pool').textContent = `· ${s.poolSize} tracks in the shuffle, ${s.remainingInBag} left in this round`;
-  // Expected share of picks: tracks in the shuffle x weight multiplier (½, 1, 2).
-  const pickWeight = (p) => (s.settings.activePlaylistIds.includes(p.id) ? p.poolCount * 2 ** p.weight : 0);
-  const totalWeight = s.playlists.reduce((sum, p) => sum + pickWeight(p), 0);
+  // Share slider: % chance that the next track comes from this playlist.
+  // Fixed at 100% when only one playlist is active; unused when inactive.
+  const activeCount = s.playlists.filter((p) => p.share !== null).length;
   const html = s.playlists.length
     ? s.playlists.map((p) => {
-      const share = totalWeight ? Math.round((pickWeight(p) / totalWeight) * 100) : 0;
+      const off = p.share === null;
       return `
       <li>
         <input type="checkbox" data-toggle="${p.id}" ${s.settings.activePlaylistIds.includes(p.id) ? 'checked' : ''} title="Include in shuffle">
         ${p.picture ? `<img src="${esc(p.picture)}" alt="">` : ''}
         <div class="grow">
           <div><a href="${esc(p.link)}" target="_blank" rel="noopener">${esc(p.title)}</a></div>
-          <div class="muted small">${esc(p.creator)} · ${p.playableCount}/${p.trackCount} tracks playable${pickWeight(p) ? ` · ≈ ${share}% of picks` : ''}</div>
+          <div class="muted small">${esc(p.creator)} · ${p.playableCount}/${p.trackCount} tracks playable</div>
         </div>
-        <label class="weight" title="Weight: how often this playlist is picked (−1 ≈ half as often, +1 ≈ twice as often)">
-          <input type="range" min="-1" max="1" step="1" value="${p.weight}" data-weight="${p.id}" aria-label="Weight for ${esc(p.title)}">
-          <span class="weight-value w${p.weight + 1}">${WEIGHT_LABELS[p.weight + 1]}</span>
+        <label class="share${off ? ' off' : ''}" title="Chance that the next track comes from this playlist. All active playlists add up to 100%.">
+          <input type="range" min="0" max="100" step="1" value="${off ? 0 : p.share}" data-share="${p.id}"
+            ${off || activeCount < 2 ? 'disabled' : ''} aria-label="Share for ${esc(p.title)}">
+          <span class="share-value" data-share-label="${p.id}">${off ? '—' : `${p.share}%`}</span>
         </label>
         <button class="icon" data-refresh="${p.id}" title="Reload">↻</button>
         <button class="icon" data-delete="${p.id}" title="Delete">✕</button>
       </li>`;
     }).join('')
     : '<li class="muted">Add a public playlist to get started.</li>';
-  // Rebuild only on change, so a slider being dragged is not replaced mid-drag.
-  if (html !== lastPlaylistsHtml) {
+  // Rebuild only on change and never mid-drag, so a slider is not replaced under the pointer.
+  if (html !== lastPlaylistsHtml && !shareDrag) {
     lastPlaylistsHtml = html;
     $('playlists').innerHTML = html;
   }
@@ -284,19 +285,31 @@ $('add-form').onsubmit = (e) => {
   }).finally(() => { btn.disabled = false; });
 };
 
-// Weight slider: update the label while dragging, save when released.
+// Share sliders: moving one updates every other slider and percentage live
+// (see shares.js); the result is saved when the slider is released.
+function showShares(shares) {
+  for (const [id, v] of Object.entries(shares)) {
+    const input = $('playlists').querySelector(`input[data-share="${id}"]`);
+    const label = $('playlists').querySelector(`[data-share-label="${id}"]`);
+    if (input && Number(input.value) !== v) input.value = v;
+    if (label) label.textContent = `${v}%`;
+  }
+}
 $('playlists').addEventListener('input', (e) => {
-  if (!e.target.dataset.weight) return;
-  const v = Number(e.target.value);
-  const label = e.target.nextElementSibling;
-  label.textContent = WEIGHT_LABELS[v + 1];
-  label.className = `weight-value w${v + 1}`;
+  const id = e.target.dataset.share;
+  if (!id) return;
+  // Always start from the shares before this drag, so moving back and forth is reversible.
+  if (!shareDrag) shareDrag = { base: { ...snap.settings.playlistShares }, next: null };
+  shareDrag.next = Shares.setShare(shareDrag.base, id, Number(e.target.value));
+  showShares(shareDrag.next);
+  e.target.value = shareDrag.next[id]; // e.g. cannot go above what the others can give
 });
 $('playlists').addEventListener('change', (e) => {
-  const id = e.target.dataset.weight;
-  if (!id) return;
-  const weights = { ...snap.settings.playlistWeights, [id]: Number(e.target.value) };
-  act(() => api('PATCH', 'api/settings', { playlistWeights: weights }));
+  if (!e.target.dataset.share || !shareDrag) return;
+  const shares = shareDrag.next;
+  shareDrag = null;
+  snap.settings.playlistShares = shares;
+  act(() => api('PATCH', 'api/settings', { playlistShares: shares }));
 });
 
 $('playlists').onclick = (e) => {
