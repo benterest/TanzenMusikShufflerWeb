@@ -116,6 +116,9 @@ The share rules are in `public/shares.js`, used by both the server and the contr
 
 Each playlist has its own shuffle "bag": every track in it is drawn once before the bag is reshuffled. A track that is already queued or playing is never drawn again. Tracks removed by ✕ or Flip Board go back into the bag unplayed, so they can still come up later. The queue is saved in `/data` and survives restarts.
 
+### Deezer's repeat setting
+Each track is played in Deezer as a one-track list. With Deezer's repeat on (player bar or Queue tab), Deezer would start that same track again when it ends, so the userscript keeps repeat **off** while it controls playback (this changes the repeat setting in your Deezer account). If repeat can't be switched off, a track that jumps from its end back to the start still counts as ended, and the next track follows within a fraction of a second.
+
 ## Limitations
 - **Deezer Free accounts**: on the web you can usually pick individual tracks, but ads play. In some countries (such as the US) only 30-second previews are allowed. When that is the case, the UI badge shows "30s-limited account". If an ad delays the start of a track, the userscript keeps retrying for up to 90 seconds.
 - `dzPlayer` is an internal Deezer object, not a public API. The userscript may need fixing when Deezer updates its web app. The methods confirmed so far are `play`, `getSongId`, `getPosition`, `getDuration`, `isPlaying`, `isLimited`, and `control.pause/play/setVolume`.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tanzen Music Shuffler – Deezer Player
 // @namespace    tanzen-music-shuffler
-// @version      0.3.0
+// @version      0.4.0
 // @description  Plays tracks chosen by the Tanzen Music Shuffler server in this deezer.com tab.
 // @match        https://www.deezer.com/*
 // @grant        GM_xmlhttpRequest
@@ -93,6 +93,20 @@
   let lastKnownId = '';   // last track we handled, still loaded in the player
 
   const isAd = (p) => typeof p.getPlayerType === 'function' && AD_TYPES.includes(p.getPlayerType());
+
+  // Each track is played as a one-track list. With Deezer's repeat on (player
+  // bar / Queue tab), Deezer starts that same track again when it ends, so
+  // repeat is kept off while the Shuffler is in charge. (Deezer also turns
+  // "repeat one" into "repeat all" whenever a new list starts.)
+  function keepRepeatOff(p) {
+    if (typeof p.getRepeat === 'function' && p.getRepeat() !== 0 && p.control && typeof p.control.setRepeat === 'function') {
+      p.control.setRepeat(0);
+    }
+  }
+
+  // The same track jumped from its end back to the start: it ended and was
+  // started again (repeat), even if the very last moment was never seen.
+  const restartedAfterEnd = (last, pos) => last.lastDur > 0 && last.lastPos >= last.lastDur - 3 && pos < last.lastPos - 5;
 
   function startPlay(cmd, seq) {
     restoreVolume();
@@ -192,7 +206,9 @@
       p.control.setVolume(active.savedVolume * (left / active.fade));
     }
 
+    keepRepeatOff(p);
     if (limit > 0 && pos >= limit - 0.4) return finish('ended');
+    if (restartedAfterEnd(active, pos)) return finish('ended');
     // Natural end: player stopped right after being near the end.
     if (!playing && dur > 0 && active.lastPos >= dur - 2) return finish('ended');
     active.lastPos = pos;
@@ -211,6 +227,10 @@
       const nearEnd = external.lastDur > 0 && external.lastPos >= external.lastDur - 3;
       if (songId === external.songId) {
         if (!playing && external.lastDur > 0 && external.lastPos >= external.lastDur - 2) return endExternal();
+        if (restartedAfterEnd(external, pos)) {
+          p.control.pause(); // the queue's next track is on its way
+          return endExternal();
+        }
         external.lastPos = pos;
         external.lastDur = dur;
         candidate = null;
@@ -292,6 +312,7 @@
       position: Number(p.getPosition()) || 0,
       duration: Number(p.getDuration()) || 0,
       limited: typeof p.isLimited === 'function' ? p.isLimited() : null,
+      repeat: typeof p.getRepeat === 'function' ? p.getRepeat() : null, // 0 = off
       activated: !navigator.userActivation || navigator.userActivation.hasBeenActive,
     };
   }
