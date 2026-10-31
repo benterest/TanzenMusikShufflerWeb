@@ -20,7 +20,7 @@ docker compose up -d --build        # default port 8787 (change with: HOST_PORT=
 Then open http://localhost:8787 in your browser.
 
 ## Getting started
-1. Add a public playlist URL (or ID) in the control UI.
+1. Add a public playlist URL (or ID) in the control UI. Only playlist links are accepted (also short share links that lead to a playlist); anything else shows a red error below the field.
 2. Install [Tampermonkey](https://www.tampermonkey.net/). In Chrome, also turn on "Allow User Scripts" in the extension's details.
 3. Install the script from the "Install userscript" link in the control UI. The server address is filled in automatically at install time. To change it later, use "Change Shuffler server address" in the Tampermonkey menu.
 4. Open **exactly one** deezer.com tab, signed in, and click anywhere on the page once. This is required by the browser's autoplay policy.
@@ -78,6 +78,15 @@ The "Up next" panel, below Now Playing, holds the upcoming tracks. Ten tracks ar
 | 🔄 Flip Board | Clears the queue, then runs Rolling Dice |
 | Drag and drop, ↑ ↓ | Changes the order (priority) of queued tracks |
 | ✕ | Removes a track from the queue |
+| ➕ Adding Song | Opens a panel in the right half of Up next for collecting songs by Deezer song URL or ID (see below) |
+
+### Adding songs by URL or ID
+**➕ Adding Song** opens a panel next to Up next. Paste a Deezer song link (`deezer.com/…/track/…`, or a short share link that leads to a song) or a song ID and press **Request**. Only songs are accepted; playlist, album or artist links are refused, as are songs that aren't playable. Requested songs collect in the panel's list. The list is kept on the server and doesn't change Up next. It stays across track changes, page reloads and other open control pages until you act on it:
+- **Add them to #1** inserts the songs at the top of Up next, in list order, without interrupting the current track. The rest of the queue moves down; a song that was already queued moves up instead of appearing twice.
+- **Add them to LAST** appends them to the end of Up next. The existing order doesn't change; a song that was already queued stays where it is.
+- **Clear** empties the list. ✕ removes a single song.
+
+Songs that aren't in any of your playlists show as "Requested" in Up next.
 
 ### Picking a song directly in Deezer
 If you pick a song yourself in the Deezer tab, the userscript notices it and tells the server. The picked song becomes the current track, and the control page and the dance hall display show it ("Picked in Deezer"). The queue stays as it is; if the picked song was waiting in the queue, it is removed so it won't play twice. When the picked song ends, playback continues from the top of the queue.

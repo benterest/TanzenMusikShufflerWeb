@@ -390,6 +390,7 @@ function snapshot() {
     remainingInBag: state.settings.activePlaylistIds.reduce((s, pid) => s + ((runtime.bags[pid] || {}).ids || []).length, 0),
     current: runtime.current,
     queue: state.queue,
+    requests: state.requests,
     history: state.history.slice(0, 30),
     players,
     lastError: runtime.lastError,
@@ -558,6 +559,54 @@ async function route(req, res, url) {
     store.save(state);
     broadcast();
     return sendJson(res, 200, { added });
+  }
+
+  // "Adding Song" panel: songs requested by URL or ID wait here, untouched by
+  // playback, until they are added to the queue or cleared.
+  if (m('POST', /^\/api\/requests$/)) {
+    const body = await readJson(req);
+    const id = await deezer.resolveTrackId(body.input);
+    if (state.requests.some((x) => x.track.id === id)) throw new Error('This song is already in the list.');
+    const known = findKnownTrack(id);
+    const t = known || { ...(await deezer.fetchTrack(id)), playlistId: null };
+    if (!t.readable) throw new Error(`"${t.title}" is not playable on Deezer.`);
+    state.requests.push({ rid: crypto.randomUUID(), track: t });
+    store.save(state);
+    broadcast();
+    return sendJson(res, 200, { track: t });
+  }
+
+  if ((r = m('DELETE', /^\/api\/requests\/([\w-]+)$/))) {
+    state.requests = state.requests.filter((x) => x.rid !== r[1]);
+    store.save(state);
+    broadcast();
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (m('POST', /^\/api\/requests\/clear$/)) {
+    state.requests = [];
+    store.save(state);
+    broadcast();
+    return sendJson(res, 200, { ok: true });
+  }
+
+  // Moves the requested songs into the queue without touching the current track:
+  // "first" puts them at #1, #2, ... (a song already queued moves up);
+  // "last" appends them (a song already queued stays where it is).
+  if (m('POST', /^\/api\/requests\/add$/)) {
+    const body = await readJson(req);
+    const items = state.requests.map((x) => ({ qid: crypto.randomUUID(), track: x.track }));
+    if (body.where === 'first') {
+      const ids = new Set(items.map((q) => q.track.id));
+      state.queue = [...items, ...state.queue.filter((q) => !ids.has(q.track.id))];
+    } else {
+      const queued = new Set(state.queue.map((q) => q.track.id));
+      state.queue.push(...items.filter((q) => !queued.has(q.track.id)));
+    }
+    state.requests = [];
+    store.save(state);
+    broadcast();
+    return sendJson(res, 200, { added: items.length });
   }
 
   if (m('POST', /^\/api\/queue\/flip$/)) {

@@ -18,6 +18,7 @@
     --muted: #9c97a8;
     --border: #2e2b36;
     --accent: #b866ff;
+    --bad: #ff7b72; /* readable on the dark background */
   }
 }
 
@@ -115,6 +116,17 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: 14px; col
 .pl-track-list li.unplayable .grow { opacity: .5; }
 .tag { flex: none; font-size: 12px; padding: 1px 7px; border-radius: 99px; background: var(--border); color: var(--muted); white-space: nowrap; }
 .tag.now { background: var(--accent); color: var(--accent-text); }
+/* Adding Song panel (right half of Up next) */
+.req-form { margin: 6px 0 4px; }
+.req-error { color: var(--bad); font-size: 13px; margin: 0 0 6px; }
+.row + .req-error { margin-top: -6px; margin-bottom: 10px; }
+.req-list { max-height: 360px; overflow-y: auto; padding-right: 4px; }
+.req-list img { width: 32px; height: 32px; }
+.req-list .muted.empty { font-size: 13px; }
+.req-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.req-actions button { padding: 6px 10px; font-size: 14px; }
+.req-actions button:disabled { opacity: .45; cursor: default; }
+.toggle-btn[aria-expanded="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 .icon.toggle[aria-expanded="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 @media (max-width: 860px) {
   .pl-layout.open { grid-template-columns: 1fr; }

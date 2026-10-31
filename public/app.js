@@ -138,6 +138,7 @@ function render(s) {
   renderTrackPanel(s);
 
   if (!dragQid) renderQueue(s);
+  renderRequests(s);
 
   // history
   $('history').innerHTML = s.history.map((h) => `
@@ -156,7 +157,7 @@ function renderQueue(s) {
         ${q.track.cover ? `<img src="${esc(q.track.cover)}" alt="" draggable="false">` : ''}
         <div class="grow">
           <div>${esc(q.track.title)}</div>
-          <div class="muted small">${esc(q.track.artist)} · ${esc(plTitle(q.track.playlistId))}</div>
+          <div class="muted small">${esc(q.track.artist)} · ${q.track.playlistId ? esc(plTitle(q.track.playlistId)) : 'Requested'}</div>
         </div>
         ${q.pickedFor !== undefined && q.pickedFor === (s.current ? s.current.seq : null) ? '<span class="tag" title="Added with Add to Next Queue during this track">Picked</span>' : ''}
         <span class="dur">${fmt(q.track.duration)}</span>
@@ -168,6 +169,86 @@ function renderQueue(s) {
       </li>`).join('')
     : '<li class="muted">The queue is empty. Press 🎲 Rolling Dice.</li>';
 }
+
+// ---------- Adding Song panel ----------
+// Songs requested by URL or ID wait in a server-side list (shared by every
+// open control page) until they are added to Up next or cleared.
+
+let requestsOpen = null; // null until the first snapshot: opens by itself when songs are waiting
+let lastReqHtml = '';
+
+function setRequestsOpen(open) {
+  requestsOpen = open;
+  showReqError('');
+  if (snap) renderRequests(snap);
+  if (open) $('req-input').focus();
+}
+
+function showReqError(msg) {
+  $('req-error').hidden = !msg;
+  $('req-error').textContent = msg || '';
+}
+
+function renderRequests(s) {
+  if (requestsOpen === null) requestsOpen = s.requests.length > 0;
+  $('q-layout').classList.toggle('open', requestsOpen);
+  $('req-panel').hidden = !requestsOpen;
+  $('btn-requests').setAttribute('aria-expanded', String(requestsOpen));
+
+  const n = s.requests.length;
+  $('req-count').textContent = n ? `${n} song${n === 1 ? '' : 's'}` : '';
+  for (const id of ['req-first', 'req-last', 'req-clear']) $(id).disabled = !n;
+  const queuedAt = new Map(s.queue.map((q, i) => [q.track.id, i + 1]));
+  const html = n
+    ? s.requests.map((x) => `
+      <li>
+        ${x.track.cover ? `<img src="${esc(x.track.cover)}" alt="">` : ''}
+        <div class="grow">
+          <div>${esc(x.track.title)}</div>
+          <div class="muted small">${esc(x.track.artist)} · ${fmt(x.track.duration)}</div>
+        </div>
+        ${queuedAt.has(x.track.id) ? `<span class="tag" title="Already in Up next">In Up next #${queuedAt.get(x.track.id)}</span>` : ''}
+        <button class="icon" data-remove-req="${esc(x.rid)}" title="Remove from this list">✕</button>
+      </li>`).join('')
+    : '<li class="muted empty">Paste a Deezer song link (or its ID) and press Request.</li>';
+  if (html !== lastReqHtml) {
+    lastReqHtml = html;
+    $('req-list').innerHTML = html;
+  }
+}
+
+async function reqAction(btn, fn) {
+  btn.disabled = true;
+  showReqError('');
+  try {
+    await fn();
+  } catch (e) {
+    showReqError(e.message);
+  } finally {
+    btn.disabled = false;
+    if (snap) renderRequests(snap);
+  }
+}
+
+$('btn-requests').onclick = () => setRequestsOpen(!requestsOpen);
+
+$('req-form').onsubmit = (e) => {
+  e.preventDefault();
+  reqAction(e.submitter, async () => {
+    await api('POST', 'api/requests', { input: $('req-input').value });
+    $('req-input').value = '';
+    $('req-input').focus();
+  });
+};
+
+$('req-list').onclick = (e) => {
+  const btn = e.target.closest('button[data-remove-req]');
+  if (btn) reqAction(btn, () => api('DELETE', `api/requests/${encodeURIComponent(btn.dataset.removeReq)}`));
+};
+
+$('req-first').onclick = (e) => reqAction(e.currentTarget, () => api('POST', 'api/requests/add', { where: 'first' }));
+$('req-last').onclick = (e) => reqAction(e.currentTarget, () => api('POST', 'api/requests/add', { where: 'last' }));
+$('req-clear').onclick = (e) => reqAction(e.currentTarget, () => api('POST', 'api/requests/clear'));
 
 // ---------- queue editing ----------
 
@@ -291,15 +372,27 @@ $('btn-pause').onclick = () => act(() => api('POST', 'api/pause'));
 $('btn-resume').onclick = () => act(() => api('POST', 'api/resume'));
 $('btn-stop').onclick = () => act(() => api('POST', 'api/stop'));
 
-$('add-form').onsubmit = (e) => {
+// Errors for the playlist field show in red right below it.
+function showPlaylistError(msg) {
+  $('pl-error').hidden = !msg;
+  $('pl-error').textContent = msg || '';
+}
+
+$('add-form').onsubmit = async (e) => {
   e.preventDefault();
   const btn = e.submitter;
   btn.disabled = true;
-  act(async () => {
+  showPlaylistError('');
+  try {
     await api('POST', 'api/playlists', { input: $('add-input').value });
     $('add-input').value = '';
-  }).finally(() => { btn.disabled = false; });
+  } catch (err) {
+    showPlaylistError(err.message);
+  } finally {
+    btn.disabled = false;
+  }
 };
+$('add-input').addEventListener('input', () => showPlaylistError(''));
 
 // Share sliders: moving one updates every other slider and percentage live
 // (see shares.js); the result is saved when the slider is released.
