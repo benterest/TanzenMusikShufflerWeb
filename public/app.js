@@ -101,6 +101,10 @@ function render(s) {
 
   // playlists
   $('pool').textContent = `· ${s.poolSize} tracks in the shuffle, ${s.remainingInBag} left in this round`;
+  // The same playlist never plays twice in a row, so more than half cannot be reached.
+  const overHalf = s.playlists.find((p) => p.share > 50);
+  $('share-note').hidden = !overHalf;
+  if (overHalf) $('share-note').textContent = `${overHalf.title} is set above 50%. The same playlist never plays twice in a row, so it plays about 50% of the time.`;
   // Share slider: % chance that the next track comes from this playlist.
   // Fixed at 100% when only one playlist is active; unused when inactive.
   const activeCount = s.playlists.filter((p) => p.share !== null).length;

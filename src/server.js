@@ -105,20 +105,59 @@ function drawFromPlaylist(pid, exclude) {
   return { ...t, playlistId: pid };
 }
 
-function draw(n) {
+// Picking never takes the previous playlist again right away. On its own
+// that pulls the mix toward equal, so the pick weights are corrected for it:
+// with weights w, the long-run mix is proportional to w_i * (W - w_i), and
+// this solves for weights whose long-run mix equals the shares. Exact when
+// no share is above 50%; a playlist above 50% ends up at about 50%, since
+// there are not enough other tracks to put between its own.
+function noRepeatWeights(shares) {
+  const ids = Object.keys(shares).filter((id) => shares[id] > 0);
+  const plain = Object.fromEntries(ids.map((id) => [id, shares[id] / 100]));
+  if (ids.length < 3) return plain; // with 2 playlists picks simply alternate
+
+  // Reachable target mix: a playlist above 50% is held just under 50%,
+  // and the others keep their proportions in the rest.
+  const target = { ...plain };
+  const top = ids.reduce((a, b) => (target[a] >= target[b] ? a : b));
+  if (target[top] >= 0.5) {
+    const rest = 1 - target[top];
+    target[top] = 0.49;
+    for (const id of ids) if (id !== top) target[id] = (plain[id] / rest) * 0.51;
+  }
+
+  const w = { ...target };
+  for (let it = 0; it < 200; it++) {
+    const W = ids.reduce((s, id) => s + w[id], 0);
+    const mix = Object.fromEntries(ids.map((id) => [id, w[id] * (W - w[id])]));
+    const Z = ids.reduce((s, id) => s + mix[id], 0);
+    if (!(Z > 0)) break;
+    for (const id of ids) w[id] *= target[id] / (mix[id] / Z);
+    const sum = ids.reduce((s, id) => s + w[id], 0);
+    for (const id of ids) w[id] /= sum;
+  }
+  return ids.every((id) => Number.isFinite(w[id]) && w[id] > 0) ? w : plain;
+}
+
+// Draws n tracks. `prevPid` is the playlist of the track just before them.
+function draw(n, prevPid) {
   const shares = state.settings.playlistShares;
+  const weights = noRepeatWeights(shares);
   const exclude = new Set(state.queue.map((q) => q.track.id));
   if (runtime.current) exclude.add(runtime.current.track.id);
   const exhausted = new Set();
 
   const out = [];
+  let prev = prevPid;
   while (out.length < n) {
-    const candidates = state.settings.activePlaylistIds
-      .filter((pid) => (shares[pid] || 0) > 0 && !exhausted.has(pid));
-    const total = candidates.reduce((s, pid) => s + shares[pid], 0);
+    let candidates = state.settings.activePlaylistIds
+      .filter((pid) => (weights[pid] || 0) > 0 && !exhausted.has(pid));
+    // Not the same playlist twice in a row, unless it is the only one left.
+    if (candidates.some((pid) => pid !== prev)) candidates = candidates.filter((pid) => pid !== prev);
+    const total = candidates.reduce((s, pid) => s + weights[pid], 0);
     if (total <= 0) break;
     let r = Math.random() * total;
-    const pid = candidates.find((p) => (r -= shares[p]) < 0) || candidates[candidates.length - 1];
+    const pid = candidates.find((p) => (r -= weights[p]) < 0) || candidates[candidates.length - 1];
     const track = drawFromPlaylist(pid, exclude);
     if (!track) {
       exhausted.add(pid); // everything in it is queued or playing: pick again without it
@@ -126,6 +165,7 @@ function draw(n) {
     }
     exclude.add(track.id);
     out.push(track);
+    prev = pid;
   }
   return out;
 }
@@ -140,8 +180,27 @@ function returnToBag(items) {
 
 // ---------- queue ----------
 
+// Avoids the same playlist (genre) twice in a row: when an item has the same
+// playlist as the one before it, it swaps places with the next item from a
+// different playlist. `prevPid` is the playlist of whatever plays just before.
+// If no different playlist is left, the remaining items stay as they are.
+function spreadPlaylists(items, prevPid) {
+  for (let i = 0; i < items.length; i++) {
+    const before = i === 0 ? prevPid : items[i - 1].track.playlistId;
+    if (!before || items[i].track.playlistId !== before) continue;
+    const j = items.findIndex((q, k) => k > i && q.track.playlistId !== before);
+    if (j === -1) break;
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
+}
+
 function rollDice() {
-  const added = draw(QUEUE_ROLL).map((track) => ({ qid: crypto.randomUUID(), track }));
+  const last = state.queue.length ? state.queue[state.queue.length - 1].track : runtime.current && runtime.current.track;
+  const prevPid = last && last.playlistId;
+  const added = draw(QUEUE_ROLL, prevPid).map((track) => ({ qid: crypto.randomUUID(), track }));
+  // Safety net for when only one playlist had tracks left to give.
+  spreadPlaylists(added, prevPid);
   state.queue.push(...added);
   return added.length;
 }

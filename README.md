@@ -92,6 +92,7 @@ Each active playlist has a 0–100% slider: its chance of supplying the next tra
 - Moving one slider changes the others equally to make up the difference. They update live while you drag, and the result is saved when you release. Once a playlist reaches 0%, the rest is taken from the others.
 - A newly added (or newly checked) playlist gets the median of the existing shares, at most 50%, and takes that amount equally from the others. Unchecking or deleting a playlist gives its share back to the others equally.
 - With only one active playlist, it is fixed at 100%. Unchecked playlists show "—".
+- The same playlist (genre) never plays twice in a row, unless it is the only one with tracks left. Picking skips the previous playlist, and the pick weights are corrected for that, so over time each playlist still plays at its share. A share above 50% can't be reached this way, since there aren't enough other tracks to put between its own; it plays about 50% of the time, and the control page says so. As a safety net, a batch from Rolling Dice or Flip Board that still has two of the same genre in a row swaps the second one with the next track from a different genre.
 - A small playlist with a high share repeats its tracks more often. Within a playlist, every track plays once before any repeats.
 
 The share rules are in `public/shares.js`, used by both the server and the control page.
