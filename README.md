@@ -25,7 +25,7 @@ Then open http://localhost:8787 in your browser.
 3. Install the script from the "Install userscript" link in the control UI. The server address is filled in automatically at install time. To change it later, use "Change Shuffler server address" in the Tampermonkey menu.
 4. Open **exactly one** deezer.com tab, signed in, and click anywhere on the page once. This is required by the browser's autoplay policy.
 5. When Tampermonkey asks to allow access to the server, choose "Always allow".
-6. When the "Deezer tab" badge in the UI turns green, press ⏭ Next track.
+6. When the "Deezer tab" badge in the header turns green, press ⏭ Next track.
 
 If you switch the output to "30-second preview", you can listen in the control page itself without a Deezer account. This is meant for checking that everything works.
 
@@ -60,7 +60,10 @@ Patterns and tempos are defined in `public/steps.js`.
 The window opens sized to fill the screen. If a second screen (projector) is connected, Chrome can move it there; Chrome asks once for the "window management" permission. Browsers only allow fullscreen after a user action, so click the window once, or press **F** (double-click also toggles fullscreen). The page keeps the screen awake and hides the mouse cursor while it is idle. It only reads state and never controls playback, so you can open it on any device in the same network.
 
 ## Settings
-Settings open in a modal from the ⚙ gear next to the connection badges in the header. Close it with ✕ Close, Esc, or a click outside it.
+Settings open in a modal from the ⚙ gear in the header, next to the connection badges. Close it with ✕ Close, Esc, or a click outside it. It has three tabs:
+- **Settings**: choices on the left (output, auto-play, footprints), numbers on the right (max play time, fade-out, gap).
+- **Connect Deezer**: the connection badges again, and the userscript setup steps.
+- **History**: the last 500 played tracks in a compact table (time and date as `21:54:37 31/10/2026`, playlist or "Requested"/"Picked in Deezer", track), with **Clear history**, the **total play time** and **today's play time**. Play time counts only while the player reports the current track playing (not ads or pauses). Clearing the history keeps both totals; today's play time starts again from 0 at local midnight. The time zone is set by `TZ` in `docker-compose.yml` (default `Europe/Berlin`).
 
 | Setting | Description |
 |---|---|

@@ -65,15 +65,19 @@ function render(s) {
   const plTitle = (id) => (s.playlists.find((p) => p.id === id) || {}).title || '';
 
   // badges
+  // The connection badges appear in the header and again in the Connect Deezer tab.
   const dz = s.players.deezer;
-  const bd = $('badge-deezer');
-  bd.className = 'badge' + (dz && dz.connected ? (dz.status && dz.status.activated === false ? ' warn' : ' ok') : '');
-  bd.textContent = dz && dz.connected
-    ? (dz.status && dz.status.limited ? 'Deezer tab (30s-limited account)' : 'Deezer tab connected')
-    : 'No Deezer tab';
   const pv = s.players.preview;
-  $('badge-preview').className = 'badge' + (pv && pv.connected ? ' ok' : '');
-  $('badge-preview').textContent = pv && pv.connected ? 'Preview player connected' : 'No preview player';
+  for (const el of document.querySelectorAll('[data-badge="deezer"]')) {
+    el.className = 'badge' + (dz && dz.connected ? (dz.status && dz.status.activated === false ? ' warn' : ' ok') : '');
+    el.textContent = dz && dz.connected
+      ? (dz.status && dz.status.limited ? 'Deezer tab (30s-limited account)' : 'Deezer tab connected')
+      : 'No Deezer tab';
+  }
+  for (const el of document.querySelectorAll('[data-badge="preview"]')) {
+    el.className = 'badge' + (pv && pv.connected ? ' ok' : '');
+    el.textContent = pv && pv.connected ? 'Preview player connected' : 'No preview player';
+  }
 
   // now playing
   const cur = s.current;
@@ -82,7 +86,7 @@ function render(s) {
   $('np-artist').textContent = t ? t.artist : '';
   $('np-playlist').textContent = !t ? ''
     : cur.external ? 'Picked in Deezer · the queue continues after this track'
-    : `${plTitle(cur.playlistId)} · ${cur.output === 'preview' ? 'Preview' : 'Deezer'}`;
+    : `${cur.playlistId ? plTitle(cur.playlistId) : 'Requested'} · ${cur.output === 'preview' ? 'Preview' : 'Deezer'}`;
   $('np-cover').hidden = !(t && t.cover);
   if (t && t.cover) $('np-cover').src = t.cover;
 
@@ -140,10 +144,9 @@ function render(s) {
   if (!dragQid) renderQueue(s);
   renderRequests(s);
 
-  // history
-  $('history').innerHTML = s.history.map((h) => `
-    <li><div class="grow"><div>${esc(h.title)} <span class="muted">— ${esc(h.artist)}</span></div>
-    <div class="muted small">${new Date(h.at).toLocaleTimeString()} · ${h.external ? 'Picked in Deezer' : esc(plTitle(h.playlistId))}</div></div></li>`).join('');
+  $('play-total').textContent = fmtTotal(s.stats.playMs);
+  $('play-today').textContent = fmtTotal(s.stats.todayMs);
+  refreshHistory(s);
 }
 
 function renderQueue(s) {
@@ -169,6 +172,52 @@ function renderQueue(s) {
       </li>`).join('')
     : '<li class="muted">The queue is empty. Press 🎲 Rolling Dice.</li>';
 }
+
+// ---------- History tab ----------
+// The full history is fetched only while the History tab is open, and again
+// whenever the snapshot says it changed.
+
+let historyKey = '';
+
+function fmtTotal(ms) {
+  const m = Math.floor((ms || 0) / 60000);
+  const h = Math.floor(m / 60);
+  return h ? `${h}h ${m % 60}m` : `${m}m ${Math.floor(((ms || 0) % 60000) / 1000)}s`;
+}
+
+// European style: 21:54:37 31/10/2026
+function fmtPlayed(iso) {
+  const d = new Date(iso);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())} ${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
+async function refreshHistory(s, force) {
+  if ($('panel-history').hidden || !settingsDialog.open) return;
+  const key = `${s.historyInfo.count}|${s.historyInfo.latestAt}`;
+  if (key === historyKey && !force) return;
+  historyKey = key;
+  try {
+    const { history } = await api('GET', 'api/history');
+    const plTitle = (h) => (s.playlists.find((p) => p.id === h.playlistId) || {}).title || h.playlistTitle || '';
+    $('history-count').textContent = `${history.length} track${history.length === 1 ? '' : 's'}`;
+    $('history').innerHTML = history.length
+      ? history.map((h) => {
+        const src = h.external ? '<span class="src-other">Picked in Deezer</span>'
+          : h.playlistId ? esc(plTitle(h)) : '<span class="src-other">Requested</span>';
+        return `<tr><td>${fmtPlayed(h.at)}</td><td>${src}</td><td>${esc(h.title)} <span class="artist">— ${esc(h.artist)}</span></td></tr>`;
+      }).join('')
+      : '<tr><td colspan="3" class="muted">Nothing played yet.</td></tr>';
+  } catch (e) {
+    historyKey = '';
+    $('history').innerHTML = `<tr><td colspan="3" class="muted">${esc(e.message)}</td></tr>`;
+  }
+}
+
+$('history-clear').onclick = () => {
+  if (!confirm('Clear the play history? The total play time is kept.')) return;
+  act(() => api('POST', 'api/history/clear'));
+};
 
 // ---------- Adding Song panel ----------
 // Songs requested by URL or ID wait in a server-side list (shared by every
@@ -338,10 +387,36 @@ function connectEvents() {
   };
 }
 
-// Settings live in a modal opened from the gear in the header. It closes with
-// the Close button, Esc (built into <dialog>) or a click on the backdrop.
+// Settings live in a modal opened from the gear in the header, with three
+// tabs: Settings, Connect Deezer, History. It closes with the Close button,
+// Esc (built into <dialog>) or a click on the backdrop.
 const settingsDialog = $('settings-dialog');
-$('btn-settings').onclick = () => settingsDialog.showModal();
+const TABS = ['settings', 'connect', 'history'];
+
+function showTab(name) {
+  for (const t of TABS) {
+    const on = t === name;
+    $(`tab-${t}`).setAttribute('aria-selected', String(on));
+    $(`tab-${t}`).tabIndex = on ? 0 : -1;
+    $(`panel-${t}`).hidden = !on;
+  }
+  if (name === 'history' && snap) refreshHistory(snap, true);
+}
+for (const t of TABS) $(`tab-${t}`).onclick = () => showTab(t);
+// Arrow keys move between tabs (standard tablist behaviour).
+document.querySelector('.tabs').addEventListener('keydown', (e) => {
+  const i = TABS.findIndex((t) => $(`tab-${t}`).getAttribute('aria-selected') === 'true');
+  const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+  if (!d) return;
+  const next = TABS[(i + d + TABS.length) % TABS.length];
+  showTab(next);
+  $(`tab-${next}`).focus();
+});
+
+$('btn-settings').onclick = () => {
+  showTab('settings');
+  settingsDialog.showModal();
+};
 $('settings-close').onclick = () => settingsDialog.close();
 settingsDialog.addEventListener('click', (e) => {
   if (e.target === settingsDialog) settingsDialog.close(); // the backdrop, outside .modal-body

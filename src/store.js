@@ -26,9 +26,10 @@ function load() {
       queue: raw.queue || [],    // [{ qid, track }], head plays next
       current: raw.current || null,
       requests: raw.requests || [], // songs waiting in the "Adding Song" panel: [{ rid, track }]
+      stats: { playMs: 0, todayMs: 0, day: '', ...(raw.stats || {}) }, // kept when the history is cleared
     };
   } catch {
-    return { playlists: {}, settings: { ...DEFAULT_SETTINGS }, history: [], queue: [], current: null, requests: [] };
+    return { playlists: {}, settings: { ...DEFAULT_SETTINGS }, history: [], queue: [], current: null, requests: [], stats: { playMs: 0, todayMs: 0, day: '' } };
   }
 }
 

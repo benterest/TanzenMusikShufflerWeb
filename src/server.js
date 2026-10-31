@@ -14,7 +14,7 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const POLL_TIMEOUT_MS = 25000;
 const SYNC_HOLD_MS = 1000;
 const PLAYER_ALIVE_MS = POLL_TIMEOUT_MS + 10000;
-const HISTORY_MAX = 100;
+const HISTORY_MAX = 500;
 const QUEUE_ROLL = 10; // tracks added per Rolling Dice / Flip Board (and when the queue runs empty)
 
 const state = store.load();
@@ -284,8 +284,7 @@ async function playNext() {
   const seq = sendCommand(cmd);
   runtime.current = { seq, track, playlistId: track.playlistId, startedAt: Date.now(), output };
   runtime.lastError = null;
-  state.history.unshift({ id: track.id, title: track.title, artist: track.artist, playlistId: track.playlistId, at: new Date().toISOString() });
-  state.history.length = Math.min(state.history.length, HISTORY_MAX);
+  addHistory(track);
   ensureQueue();
   store.save(state);
   broadcast();
@@ -298,6 +297,56 @@ function scheduleAdvance() {
   runtime.advanceTimer = setTimeout(() => {
     playNext().catch((e) => { runtime.lastError = e.message; broadcast(); });
   }, Math.max(0, state.settings.gapSeconds) * 1000);
+}
+
+// The playlist name is stored too, so entries keep it after the playlist is deleted.
+function addHistory(track, extra = {}) {
+  const pl = track.playlistId && state.playlists[track.playlistId];
+  state.history.unshift({
+    id: track.id, title: track.title, artist: track.artist,
+    playlistId: track.playlistId || null, playlistTitle: pl ? pl.title : '',
+    ...extra, at: new Date().toISOString(),
+  });
+  state.history.length = Math.min(state.history.length, HISTORY_MAX);
+}
+
+// Total play time counts while the player reports the current track playing
+// (not ads, not pauses). Status arrives about once a second; longer gaps are
+// not counted. Saved at most every 30s (and on shutdown). Today's play time
+// starts again from 0 at local midnight (TZ in docker-compose.yml).
+let statsSavedAt = 0;
+
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
+function statsView() {
+  return { playMs: state.stats.playMs, todayMs: state.stats.day === todayKey() ? state.stats.todayMs : 0 };
+}
+function countPlayTime(kind, p, status) {
+  const cur = runtime.current;
+  const now = Date.now();
+  const playing = !!(cur && cur.output === kind && status.playing && !cur.endedAt
+    && (kind === 'preview' ? status.seq === cur.seq
+      : status.songId === cur.track.id || (!!status.title && status.title === cur.track.title)));
+  if (playing && p.playingSince) {
+    const d = now - p.playingSince;
+    if (d > 0 && d < 5000) {
+      const day = todayKey();
+      if (state.stats.day !== day) {
+        state.stats.day = day;
+        state.stats.todayMs = 0;
+      }
+      state.stats.playMs += d;
+      state.stats.todayMs += d;
+    }
+    if (now - statsSavedAt > 30000) {
+      statsSavedAt = now;
+      store.save(state);
+    }
+  }
+  p.playingSince = playing ? now : null;
 }
 
 function findKnownTrack(id) {
@@ -335,8 +384,7 @@ function startExternal(ev) {
   // Don't play it twice: drop it from the queue if it was waiting there.
   state.queue = state.queue.filter((q) => q.track.id !== id);
   ensureQueue();
-  state.history.unshift({ id, title: track.title, artist: track.artist, playlistId: track.playlistId, external: true, at: new Date().toISOString() });
-  state.history.length = Math.min(state.history.length, HISTORY_MAX);
+  addHistory(track, { external: true });
   store.save(state);
 
   // Fill in artwork and length from the public API for tracks not in any playlist.
@@ -353,7 +401,10 @@ function handlePlayerEvent(ev) {
   const kind = ev.kind === 'preview' ? 'preview' : 'deezer';
   const p = (runtime.players[kind] ||= { lastSeen: 0, status: null });
   p.lastSeen = Date.now();
-  if (ev.status) p.status = ev.status;
+  if (ev.status) {
+    p.status = ev.status;
+    countPlayTime(kind, p, ev.status);
+  }
 
   const cur = runtime.current;
   const isCurrent = cur && cur.output === kind
@@ -391,7 +442,9 @@ function snapshot() {
     current: runtime.current,
     queue: state.queue,
     requests: state.requests,
-    history: state.history.slice(0, 30),
+    // The full history is fetched from /api/history; this tells pages when it changed.
+    historyInfo: { count: state.history.length, latestAt: state.history.length ? state.history[0].at : null },
+    stats: statsView(),
     players,
     lastError: runtime.lastError,
   };
@@ -607,6 +660,16 @@ async function route(req, res, url) {
     store.save(state);
     broadcast();
     return sendJson(res, 200, { added: items.length });
+  }
+
+  if (m('GET', /^\/api\/history$/)) return sendJson(res, 200, { history: state.history, stats: statsView() });
+
+  // Clears the list only; the total play time is kept.
+  if (m('POST', /^\/api\/history\/clear$/)) {
+    state.history = [];
+    store.save(state);
+    broadcast();
+    return sendJson(res, 200, { ok: true });
   }
 
   if (m('POST', /^\/api\/queue\/flip$/)) {
