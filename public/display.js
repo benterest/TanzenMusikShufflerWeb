@@ -110,7 +110,7 @@ function render(s) {
 
   // playback position (when a max play time is set, the clock ends when the track will actually stop)
   clock.update(s);
-  steps.set(t ? detectDance(playlistTitle(cur.playlistId), t.title) : null, s.settings.showSteps !== false);
+  steps.set(t ? detectDance(playlistTitle(cur.playlistId), t.title) : null, s.settings.showSteps === true);
 
   // state label
   let label = '';

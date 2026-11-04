@@ -119,7 +119,7 @@ function render(s) {
   $('add-input').placeholder = `Public ${name} playlist URL or ID`;
   $('req-input').placeholder = `${name} song URL or ID`;
   $('set-autoAdvance').checked = s.settings.autoAdvance;
-  $('set-showSteps').checked = s.settings.showSteps !== false;
+  $('set-showSteps').checked = s.settings.showSteps === true;
   $('preview-host-row').hidden = s.settings.output !== 'preview';
 
   // playlists

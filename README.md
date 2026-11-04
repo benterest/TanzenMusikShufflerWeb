@@ -44,7 +44,7 @@ The colours follow the service: purple for Deezer, Spotify's green for Spotify. 
 When the track changes, the display switches like a carousel: the previous track slides out to the left while the new one slides in from the right, and the up-next cards slide in after it. With the system's "reduce motion" setting on, it switches without animation.
 
 ### Dance step footprints
-Next to the timer, the display animates small footprints showing the basic rhythm of the dance. The dance is recognised from the playlist name (e.g. "Tanzen - Chacha"), or from the track title if the playlist name doesn't match. Footprints stamp in time with the play clock, so they stop when it stops. The tempo is the standard competition tempo, unless the track title names one (e.g. "Slow Waltz: 29BPM", read as bars per minute). Turn the footprints on or off with "Show dance step footprints on the display" in Settings.
+Next to the timer, the display animates small footprints showing the basic rhythm of the dance. The dance is recognised from the playlist name (e.g. "Tanzen - Chacha"), or from the track title if the playlist name doesn't match. Footprints stamp in time with the play clock, so they stop when it stops. The tempo is the standard competition tempo, unless the track title names one (e.g. "Slow Waltz: 29BPM", read as bars per minute). The footprints are off by default; turn them on or off with "Dance footprints on the display" in Settings.
 
 | Dance | Steps (small = quick) |
 |---|---|

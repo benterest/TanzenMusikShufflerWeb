@@ -13,7 +13,7 @@ const DEFAULT_SETTINGS = {
   maxPlaySeconds: 0,    // 0 = play the whole track
   fadeSeconds: 3,
   gapSeconds: 2,
-  showSteps: true,      // dance step footprints on the display page
+  showSteps: false,     // dance step footprints on the display page (off unless turned on)
   playlistShares: {},   // active playlistId -> % chance of supplying the next track (sum 100)
 };
 
