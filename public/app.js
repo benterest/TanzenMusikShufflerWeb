@@ -67,7 +67,10 @@ function renderTime() {
 setInterval(renderTime, 250);
 
 let lastPlaylistsHtml = '';
-let shareDrag = null; // { base, next } while a share slider is being moved
+let shareDrag = null; // { id, value } while a priority slider is being moved
+
+// Share label: rounded percent, "<1%" for a small but non-zero share, "—" when inactive.
+const fmtShare = (pct) => (pct === null || pct === undefined ? '—' : pct > 0 && pct < 1 ? '<1%' : `${Math.round(pct)}%`);
 
 function render(s) {
   snap = s;
@@ -124,13 +127,10 @@ function render(s) {
 
   // playlists
   $('pool').textContent = `· ${s.poolSize} tracks in the shuffle, ${s.remainingInBag} left in this round`;
-  // The same playlist never plays twice in a row, so more than half cannot be reached.
-  const overHalf = s.playlists.find((p) => p.share > 50);
-  $('share-note').hidden = !overHalf;
-  if (overHalf) $('share-note').textContent = `${overHalf.title} is set above 50%. The same playlist never plays twice in a row, so it plays about 50% of the time.`;
-  // Share slider: % chance that the next track comes from this playlist.
-  // Fixed at 100% when only one playlist is active; unused when inactive.
-  const activeCount = s.playlists.filter((p) => p.share !== null).length;
+  renderShareNote(s.playlists);
+  // Priority slider: the playlist's own value (0-100). Next to it, its share:
+  // the value divided by the sum over all active playlists. Moving one
+  // slider never moves the others. Inactive playlists keep their value.
   const html = s.playlists.length
     ? s.playlists.map((p) => {
       const off = p.share === null;
@@ -142,10 +142,10 @@ function render(s) {
           <div><a href="${esc(p.link)}" target="_blank" rel="noopener">${esc(p.title)}</a></div>
           <div class="muted small">${esc(p.creator)} · ${p.playableCount}/${p.trackCount} tracks playable${p.truncated ? ' <span title="Spotify shows at most 100 tracks of a playlist without signing in; later tracks are not included.">· first 100 only</span>' : ''}</div>
         </div>
-        <label class="share${off ? ' off' : ''}" title="Chance that the next track comes from this playlist. All active playlists add up to 100%.">
-          <input type="range" min="0" max="100" step="1" value="${off ? 0 : p.share}" data-share="${p.id}"
-            ${off || activeCount < 2 ? 'disabled' : ''} aria-label="Share for ${esc(p.title)}">
-          <span class="share-value" data-share-label="${p.id}">${off ? '—' : `${p.share}%`}</span>
+        <label class="share${off ? ' off' : ''}" title="Priority 0-100 (default 50). The share is this value divided by the sum of all active playlists' values.">
+          <input type="range" min="0" max="100" step="1" value="${p.priority}" data-share="${p.id}" aria-label="Priority for ${esc(p.title)}">
+          <span class="share-priority" data-priority-label="${p.id}">${p.priority}</span>
+          <span class="share-value" data-share-label="${p.id}">${fmtShare(p.share)}</span>
         </label>
         <button class="icon" data-refresh="${p.id}" title="Reload">↻</button>
         <button class="icon" data-delete="${p.id}" title="Delete">✕</button>
@@ -488,31 +488,46 @@ $('add-form').onsubmit = async (e) => {
 };
 $('add-input').addEventListener('input', () => showPlaylistError(''));
 
-// Share sliders: moving one updates every other slider and percentage live
-// (see shares.js); the result is saved when the slider is released.
-function showShares(shares) {
-  for (const [id, v] of Object.entries(shares)) {
-    const input = $('playlists').querySelector(`input[data-share="${id}"]`);
-    const label = $('playlists').querySelector(`[data-share-label="${id}"]`);
-    if (input && Number(input.value) !== v) input.value = v;
-    if (label) label.textContent = `${v}%`;
+// Notes under the playlists: a share above 50% can't be reached, and
+// nothing can be picked when every active playlist is at 0.
+function renderShareNote(playlists) {
+  const active = playlists.filter((p) => p.share !== null);
+  const overHalf = active.find((p) => p.share > 50);
+  const allZero = active.length > 0 && active.every((p) => p.share === 0);
+  const note = allZero ? 'Every active playlist is at 0, so no track can be picked. Raise at least one slider.'
+    // The same playlist never plays twice in a row, so more than half cannot be reached.
+    : overHalf && active.length > 1 ? `${overHalf.title} has ${Math.round(overHalf.share)}%. The same playlist never plays twice in a row, so it plays about 50% of the time.`
+    : '';
+  $('share-note').hidden = !note;
+  $('share-note').textContent = note;
+}
+
+// Priority sliders: moving one changes only its own value; the share labels
+// of all active playlists follow live. The value is saved on release.
+function showShares(id, value) {
+  const priorities = { ...snap.settings.playlistPriorities, [id]: value };
+  const pct = Shares.percentages(priorities, snap.settings.activePlaylistIds);
+  const playlists = snap.playlists.map((p) => ({ ...p, share: p.id in pct ? pct[p.id] : null }));
+  for (const p of playlists) {
+    const label = $('playlists').querySelector(`[data-share-label="${p.id}"]`);
+    if (label) label.textContent = fmtShare(p.share);
   }
+  const own = $('playlists').querySelector(`[data-priority-label="${id}"]`);
+  if (own) own.textContent = value;
+  renderShareNote(playlists);
 }
 $('playlists').addEventListener('input', (e) => {
   const id = e.target.dataset.share;
   if (!id) return;
-  // Always start from the shares before this drag, so moving back and forth is reversible.
-  if (!shareDrag) shareDrag = { base: { ...snap.settings.playlistShares }, next: null };
-  shareDrag.next = Shares.setShare(shareDrag.base, id, Number(e.target.value));
-  showShares(shareDrag.next);
-  e.target.value = shareDrag.next[id]; // e.g. cannot go above what the others can give
+  shareDrag = { id, value: Number(e.target.value) };
+  showShares(id, shareDrag.value);
 });
 $('playlists').addEventListener('change', (e) => {
   if (!e.target.dataset.share || !shareDrag) return;
-  const shares = shareDrag.next;
+  const { id, value } = shareDrag;
   shareDrag = null;
-  snap.settings.playlistShares = shares;
-  act(() => api('PATCH', 'api/settings', { playlistShares: shares }));
+  snap.settings.playlistPriorities = { ...snap.settings.playlistPriorities, [id]: value };
+  act(() => api('PATCH', 'api/settings', { playlistPriorities: { [id]: value } }));
 });
 
 // ---------- playlist track panel ----------

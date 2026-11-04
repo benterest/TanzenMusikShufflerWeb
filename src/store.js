@@ -14,7 +14,7 @@ const DEFAULT_SETTINGS = {
   fadeSeconds: 3,
   gapSeconds: 2,
   showSteps: false,     // dance step footprints on the display page (off unless turned on)
-  playlistShares: {},   // active playlistId -> % chance of supplying the next track (sum 100)
+  playlistPriorities: {}, // playlistId -> 0-100 (missing = 50); share = value / sum over active playlists
 };
 
 function load() {

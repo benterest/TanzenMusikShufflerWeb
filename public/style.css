@@ -146,18 +146,20 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: 14px; col
 .list .grow > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .history li { font-size: 14px; }
 
-/* Playlist share: 0-100% slider; all active playlists add up to 100% */
+/* Playlist priority: 0-100 slider, its value, and the resulting share in % */
 .share { display: flex; align-items: center; gap: 8px; flex: none; }
-.share input[type="range"] { width: 140px; padding: 0; border: 0; background: none; accent-color: var(--accent); cursor: pointer; }
-.share input[type="range"]:disabled { cursor: default; opacity: .5; }
+.share input[type="range"] { width: 260px; padding: 0; border: 0; background: none; accent-color: var(--accent); cursor: pointer; }
+.share-priority { width: 2em; font-size: 13px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
 .share-value { width: 3em; font-size: 14px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.share.off input[type="range"] { opacity: .5; }
 .share.off .share-value { color: var(--muted); font-weight: 400; }
-@media (max-width: 520px) { .share input[type="range"] { width: 90px; } }
+@media (max-width: 760px) { .share input[type="range"] { width: 160px; } }
+@media (max-width: 520px) { .share input[type="range"] { width: 100px; } }
 /* Playlist track panel: opens in the right half of the Playlists card */
 .pl-layout { display: grid; gap: 16px; align-items: start; }
 .pl-layout.open { grid-template-columns: 1fr 1fr; }
 .pl-main { min-width: 0; }
-.pl-layout.open .share input[type="range"] { width: 80px; }
+.pl-layout.open .share input[type="range"] { width: 120px; }
 .pl-tracks { min-width: 0; border-left: 1px solid var(--border); padding-left: 16px; }
 .pl-tracks-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
 .pl-tracks-head h3 { font-size: 15px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -31,7 +31,7 @@ Then open http://localhost:8787 in your browser.
 If you switch the output to "30-second preview", you can listen in the control page itself without an account. This is meant for checking that everything works.
 
 ### Switching the music service
-Each service keeps its own playlists, active selection, shares, Up next queue and song requests. Switching stops the current track and brings back the other service's set as you left it. The history and play time are shared.
+Each service keeps its own playlists (with their priorities), active selection, Up next queue and song requests. Switching stops the current track and brings back the other service's set as you left it. The history and play time are shared.
 
 The colours follow the service: purple for Deezer, Spotify's green for Spotify. They change on the control page as soon as you pick the service, and on open dance hall displays with the next update.
 
@@ -109,17 +109,17 @@ How a direct pick is told apart from the player switching songs by itself:
 ### Playlist tracks
 The ▾ button at the right end of each playlist row opens that playlist's tracks in the right half of the Playlists card (scrollable for long playlists). A search box above the list filters it by title as you type (ignoring case and accents); it is cleared after Add to Next Queue and whenever the panel closes. Tracks that are playing or already queued are marked. **Add to Next Queue** puts a track at the top of the queue, so it plays next. Picks made while the same track is playing line up in the order they were made (#1, #2, #3, …) and are tagged "Picked" in Up next; once the next track starts, the next pick goes to #1 again. A track that was already queued moves up instead of appearing twice. The panel then closes. Pressing ▴ or Esc also closes it.
 
-### Playlist shares
-Each active playlist has a 0–100% slider: its chance of supplying the next track. The next track is picked in two steps: first a playlist, by its share, regardless of how many tracks it has; then a random track inside that playlist.
+### Playlist priorities and shares
+Each playlist has a priority slider from 0 to 100 (default 50). Next to the slider are its value and its **share**: its chance of supplying the next track, which is its value divided by the sum of the values of all active playlists. The next track is picked in two steps: first a playlist, by its share, regardless of how many tracks it has; then a random track inside that playlist.
 
-- All active playlists always add up to 100%. Shares are whole numbers and never go below 0% or above 100%.
-- Moving one slider changes the others equally to make up the difference. They update live while you drag, and the result is saved when you release. Once a playlist reaches 0%, the rest is taken from the others.
-- A newly added (or newly checked) playlist gets the median of the existing shares, at most 50%, and takes that amount equally from the others. Unchecking or deleting a playlist gives its share back to the others equally.
-- With only one active playlist, it is fixed at 100%. Unchecked playlists show "—".
+- Moving one slider never moves the others; only the share labels change. For example, ten playlists at 50 sum to 500, so each has 10%. Raising the first one to 100 makes the sum 550: the first has 100/550 ≈ 18%, the others 50/550 ≈ 9%. With all ten at 100 the sum is 1000, and each has 10% again.
+- The share labels update live while you drag; the value is saved when you release.
+- An unchecked playlist keeps its value and shows "—" as its share; checking it again brings it back with that value. When every active playlist is at 0, nothing can be picked, and the control page says so.
+- Shares from earlier versions (percentages adding up to 100) were turned into priorities with the same proportions; equal shares became 50 each.
 - The same playlist (genre) never plays twice in a row, unless it is the only one with tracks left. Picking skips the previous playlist, and the pick weights are corrected for that, so over time each playlist still plays at its share. A share above 50% can't be reached this way, since there aren't enough other tracks to put between its own; it plays about 50% of the time, and the control page says so. As a safety net, a batch from Rolling Dice or Flip Board that still has two of the same genre in a row swaps the second one with the next track from a different genre.
 - A small playlist with a high share repeats its tracks more often. Within a playlist, every track plays once before any repeats.
 
-The share rules are in `public/shares.js`, used by both the server and the control page.
+The priority rules are in `public/shares.js`, used by both the server and the control page.
 
 Each playlist has its own shuffle "bag": every track in it is drawn once before the bag is reshuffled. A track that is already queued or playing is never drawn again. Tracks removed by ✕ or Flip Board go back into the bag unplayed, so they can still come up later. The queue is saved in `/data` and survives restarts.
 

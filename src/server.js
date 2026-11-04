@@ -20,24 +20,32 @@ const HISTORY_MAX = 500;
 const QUEUE_ROLL = 10; // tracks added per Rolling Dice / Flip Board (and when the queue runs empty)
 
 const state = store.load();
-// Older versions stored -1/0/+1 weights (½x, 1x, 2x); turn them into shares once.
-if (state.settings.playlistWeights) {
-  if (Object.keys(state.settings.playlistShares).length === 0) {
-    for (const id of state.settings.activePlaylistIds) {
-      state.settings.playlistShares[id] = 2 ** (Number(state.settings.playlistWeights[id]) || 0);
-    }
+// Older versions stored -1/0/+1 weights (½x, 1x, 2x), and later shares that
+// added up to 100 (also kept per service in the stash). Turn them into
+// priorities once, keeping their proportions.
+{
+  const pr = state.settings.playlistPriorities;
+  const keep = (from) => { for (const [id, v] of Object.entries(from)) if (!(id in pr)) pr[id] = v; };
+  if (state.settings.playlistWeights) {
+    const w = state.settings.playlistWeights;
+    keep(Object.fromEntries(Object.keys(w).map((id) => [id, Shares.clampPriority(Shares.DEFAULT_PRIORITY * 2 ** (Number(w[id]) || 0))])));
+    delete state.settings.playlistWeights;
   }
-  delete state.settings.playlistWeights;
+  for (const holder of [state.settings, ...Object.values(state.stash || {})]) {
+    if (holder.playlistShares) keep(Shares.fromShares(holder.playlistShares));
+    delete holder.playlistShares;
+  }
+  state.settings.playlistPriorities = Shares.sanitize(pr);
 }
 // Older versions had only Deezer, and output 'deezer' meant the Deezer tab.
 if (state.settings.output !== 'preview') state.settings.output = 'tab';
 for (const p of Object.values(state.playlists)) p.provider ||= 'deezer';
-state.settings.playlistShares = Shares.normalize(state.settings.playlistShares, state.settings.activePlaylistIds);
 
 // ---------- music service ----------
-// One service is used at a time. Its playlists, active set, shares, queue and
+// One service is used at a time. Its playlists, active set, queue and
 // requests are what the rest of the server works with; the other service's
-// active set, shares, queue and requests wait in state.stash.
+// active set, queue and requests wait in state.stash. Priorities are kept per
+// playlist id, so they need no stash.
 
 const PROVIDERS = { deezer, spotify };
 const SERVICE_NAMES = { deezer: 'Deezer', spotify: 'Spotify' };
@@ -97,13 +105,14 @@ function shuffle(arr) {
   return arr;
 }
 
-// Playlist shares (settings.playlistShares): whole percentages per active
-// playlist that add up to 100. The next track comes from a playlist picked
-// by share, regardless of how many tracks it has; inside that playlist a
-// "bag" plays every track once before any repeats. Tracks that are already
-// queued or playing are never drawn again.
-function syncShares() {
-  state.settings.playlistShares = Shares.normalize(state.settings.playlistShares, state.settings.activePlaylistIds);
+// Playlist priorities (settings.playlistPriorities, see shares.js): each
+// playlist's own 0-100 value. Its share is its value divided by the sum over
+// the active playlists. The next track comes from a playlist picked by share,
+// regardless of how many tracks it has; inside that playlist a "bag" plays
+// every track once before any repeats. Tracks that are already queued or
+// playing are never drawn again.
+function shares() {
+  return Shares.percentages(state.settings.playlistPriorities, state.settings.activePlaylistIds);
 }
 
 function playableIds(pid) {
@@ -162,8 +171,7 @@ function noRepeatWeights(shares) {
 
 // Draws n tracks. `prevPid` is the playlist of the track just before them.
 function draw(n, prevPid) {
-  const shares = state.settings.playlistShares;
-  const weights = noRepeatWeights(shares);
+  const weights = noRepeatWeights(shares());
   const exclude = new Set(state.queue.map((q) => q.track.id));
   if (runtime.current) exclude.add(runtime.current.track.id);
   const exhausted = new Set();
@@ -498,7 +506,7 @@ async function fillCovers(pid) {
   }
 }
 
-// Each service keeps its own active playlists, shares, queue and requests.
+// Each service keeps its own active playlists, queue and requests.
 // Switching stops playback and brings back the other service's set.
 function switchService(next) {
   clearTimeout(runtime.advanceTimer);
@@ -508,14 +516,13 @@ function switchService(next) {
   }
   const s = state.settings;
   state.stash[s.service] = {
-    activePlaylistIds: s.activePlaylistIds, playlistShares: s.playlistShares,
+    activePlaylistIds: s.activePlaylistIds,
     queue: state.queue, requests: state.requests,
   };
   const saved = state.stash[next] || {};
   delete state.stash[next];
   s.service = next;
   s.activePlaylistIds = (saved.activePlaylistIds || []).filter((id) => ofService(state.playlists[id]));
-  s.playlistShares = saved.playlistShares || {};
   state.queue = (saved.queue || []).filter((q) => !q.track.playlistId || ofService(state.playlists[q.track.playlistId]));
   state.requests = saved.requests || [];
   runtime.lastError = null;
@@ -525,6 +532,7 @@ function switchService(next) {
 
 function snapshot() {
   const now = Date.now();
+  const pct = shares();
   const players = {};
   for (const [kind, p] of Object.entries(runtime.players)) {
     players[kind] = { connected: now - p.lastSeen < PLAYER_ALIVE_MS, status: p.status };
@@ -536,7 +544,8 @@ function snapshot() {
       id: p.id, title: p.title, creator: p.creator, picture: p.picture, link: p.link,
       trackCount: p.tracks.length, playableCount: p.tracks.filter((t) => t.readable).length,
       truncated: !!p.truncated,
-      share: p.id in state.settings.playlistShares ? state.settings.playlistShares[p.id] : null,
+      priority: Shares.priorityOf(state.settings.playlistPriorities, p.id),
+      share: state.settings.activePlaylistIds.includes(p.id) ? pct[p.id] : null, // percent, not rounded
       fetchedAt: p.fetchedAt,
       coverCount: p.tracks.filter((t) => t.cover).length, // grows while Spotify artwork is filled in
     })),
@@ -641,7 +650,6 @@ async function route(req, res, url) {
     state.playlists[pl.id] = pl;
     if (pl.provider === 'spotify') fillCovers(pl.id);
     if (!state.settings.activePlaylistIds.includes(pl.id)) state.settings.activePlaylistIds.push(pl.id);
-    syncShares();
     ensureQueue();
     store.save(state);
     broadcast();
@@ -666,9 +674,9 @@ async function route(req, res, url) {
 
   if ((r = m('DELETE', /^\/api\/playlists\/([A-Za-z0-9]+)$/))) {
     delete state.playlists[r[1]];
+    delete state.settings.playlistPriorities[r[1]];
     state.settings.activePlaylistIds = state.settings.activePlaylistIds.filter((id) => id !== r[1]);
     state.queue = state.queue.filter((q) => q.track.playlistId !== r[1]);
-    syncShares();
     ensureQueue();
     store.save(state);
     broadcast();
@@ -678,10 +686,14 @@ async function route(req, res, url) {
   if (m('PATCH', /^\/api\/settings$/)) {
     const body = await readJson(req);
     if (PROVIDERS[body.service] && body.service !== state.settings.service) switchService(body.service);
+    const prioritiesBefore = state.settings.playlistPriorities;
     for (const k of SETTING_KEYS) if (k in body && k !== 'service') state.settings[k] = body[k];
     if (state.settings.output !== 'preview') state.settings.output = 'tab';
+    // Priorities are merged, so a page only needs to send the ones it changed.
+    if ('playlistPriorities' in body) {
+      state.settings.playlistPriorities = Shares.sanitize({ ...prioritiesBefore, ...Shares.sanitize(body.playlistPriorities) });
+    }
     state.settings.activePlaylistIds = state.settings.activePlaylistIds.map(String).filter((id) => ofService(state.playlists[id]));
-    syncShares();
     ensureQueue();
     store.save(state);
     broadcast();
