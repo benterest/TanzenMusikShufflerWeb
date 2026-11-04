@@ -117,8 +117,12 @@ body.idle { cursor: none; }
 .next-label { font-size: clamp(13px, 2.2vh, 28px); text-transform: uppercase; letter-spacing: .14em; color: var(--muted); margin-bottom: 1.4vh; }
 .queue {
   list-style: none; margin: 0; padding: 0;
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1.6vw;
+  display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); gap: 1.6vw;
 }
+/* 6-8 tracks: two rows, so the artwork shrinks to leave room for the current track. */
+.queue.two-rows { row-gap: 1.4vh; }
+.queue.two-rows li { padding: 1.1vh; }
+.queue.two-rows img, .queue.two-rows .ph { width: 7.5vh; height: 7.5vh; }
 .queue li {
   display: flex; gap: 1.2vw; align-items: center;
   padding: 1.4vh; border-radius: 1.2vh;

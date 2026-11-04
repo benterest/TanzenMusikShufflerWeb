@@ -111,7 +111,7 @@ function render(s) {
   if (s.lastError) showError(s.lastError);
 
   // settings (don't overwrite a field the user is editing)
-  for (const k of ['output', 'maxPlaySeconds', 'fadeSeconds', 'gapSeconds']) {
+  for (const k of ['output', 'maxPlaySeconds', 'fadeSeconds', 'gapSeconds', 'displayQueueCount']) {
     const el = $('set-' + k);
     if (document.activeElement !== el) el.value = s.settings[k];
   }
@@ -682,7 +682,7 @@ $('playlists').onclick = (e) => {
   }
 };
 
-for (const k of ['output', 'maxPlaySeconds', 'fadeSeconds', 'gapSeconds']) {
+for (const k of ['output', 'maxPlaySeconds', 'fadeSeconds', 'gapSeconds', 'displayQueueCount']) {
   $('set-' + k).onchange = (e) => {
     const v = e.target.type === 'number' ? Number(e.target.value) : e.target.value;
     act(() => api('PATCH', 'api/settings', { [k]: v }));

@@ -39,7 +39,7 @@ The colours follow the service: purple for Deezer, Spotify's green for Spotify. 
 **⧉ Dance Hall** in the Now Playing card opens a display-only window (`/display.html`) for projecting in the dance hall. It shows:
 - the current track's large artwork, the dance (playlist name), title and artist
 - a time bar with elapsed and remaining time. This is a simulated clock: it starts from 0:00 as soon as the player reports the track playing, then counts the known track length down once per second. It never re-syncs with the player's position mid-track, so it never jumps. It only reacts to events: it freezes on pause or ads, continues on resume, resets on the next track or stop, and shows the full length at the end. The real position is used once, when the page is opened mid-track. When a max play time is set, the timer ends when the track will actually stop
-- the next 4 tracks in the queue, with artwork
+- the next tracks in the queue, with artwork: 4 by default, up to 8 ("Up next on the display" in Settings). Up to 5 fit in one row; 6 to 8 are shown in two rows (3+3, 4+3, 4+4) with smaller artwork
 
 When the track changes, the display switches like a carousel: the previous track slides out to the left while the new one slides in from the right, and the up-next cards slide in after it. With the system's "reduce motion" setting on, it switches without animation.
 
@@ -67,7 +67,7 @@ The window opens sized to fill the screen. If a second screen (projector) is con
 
 ## Settings
 Settings open in a modal from the ⚙ gear in the header, next to the connection badges. Close it with ✕ Close, Esc, or a click outside it. It has three tabs:
-- **Settings**: choices on the left (music service, output, auto-play, footprints), numbers on the right (max play time, fade-out, gap).
+- **Settings**: choices on the left (music service, output, auto-play, footprints), numbers on the right (max play time, fade-out, gap, Up next on the display).
 - **Connect Deezer / Connect Spotify**: the connection badges again, and the userscript setup steps for the selected service.
 - **History**: the last 500 played tracks in a compact table (time and date as `21:54:37 31/10/2026`, playlist or "Requested"/"Picked in Deezer"/"Picked in Spotify", track), with **Clear history**, the **total play time** and **today's play time**. Play time counts only while the player reports the current track playing (not ads or pauses). Clearing the history keeps both totals; today's play time starts again from 0 at local midnight. The time zone is set by `TZ` in `docker-compose.yml` (default `Europe/Berlin`).
 
@@ -77,6 +77,7 @@ Settings open in a modal from the ⚙ gear in the header, next to the connection
 | Automatically play the next track | Picks the next track automatically when one ends |
 | Max play time | 0 plays the whole track. For example, 90 fades out after 90 seconds and moves on to the next track |
 | Fade-out / Gap between tracks | Fade length when a max play time is set, and the wait before the next track starts |
+| Up next on the display | How many queued tracks the dance hall display shows, 4 to 8 (default 4) |
 
 ## Queue
 The "Up next" panel, below Now Playing, holds the upcoming tracks. Ten tracks are queued automatically whenever the queue is empty, including at startup and after adding a playlist.

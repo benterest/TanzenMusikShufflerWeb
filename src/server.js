@@ -689,6 +689,7 @@ async function route(req, res, url) {
     const prioritiesBefore = state.settings.playlistPriorities;
     for (const k of SETTING_KEYS) if (k in body && k !== 'service') state.settings[k] = body[k];
     if (state.settings.output !== 'preview') state.settings.output = 'tab';
+    state.settings.displayQueueCount = Math.min(8, Math.max(4, Math.round(Number(state.settings.displayQueueCount)) || 4));
     // Priorities are merged, so a page only needs to send the ones it changed.
     if ('playlistPriorities' in body) {
       state.settings.playlistPriorities = Shares.sanitize({ ...prioritiesBefore, ...Shares.sanitize(body.playlistPriorities) });

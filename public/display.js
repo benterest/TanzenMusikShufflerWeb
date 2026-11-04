@@ -3,7 +3,6 @@
 // Display-only view: reads the same SSE snapshot as the control page and
 // never sends commands.
 const $ = (id) => document.getElementById(id);
-const QUEUE_SHOWN = 4;
 
 let snap = null;
 const clock = new PlayClock();
@@ -120,12 +119,16 @@ function render(s) {
   $('state').textContent = label;
   $('state').className = 'state' + (label === 'Paused' ? ' paused' : '');
 
-  // up next
-  const items = s.queue.slice(0, QUEUE_SHOWN);
+  // up next: 4 to 8 tracks (Settings). Up to 5 fit in one row; 6 to 8 go
+  // into two balanced rows (3+3, 4+3, 4+4) with smaller artwork.
+  const shown = Math.min(8, Math.max(4, Number(s.settings.displayQueueCount) || 4));
+  const items = s.queue.slice(0, shown);
   // Rebuild only when the queue changes, so running animations are not cut off.
-  const qKey = items.map((q) => q.qid).join() + '|' + s.playlists.map((p) => p.title).join();
+  const qKey = shown + '|' + items.map((q) => q.qid).join() + '|' + s.playlists.map((p) => p.title).join();
   if (qKey === queueKey) return;
   queueKey = qKey;
+  $('queue').style.setProperty('--cols', shown <= 5 ? shown : Math.ceil(shown / 2));
+  $('queue').classList.toggle('two-rows', shown > 5);
   $('queue').innerHTML = items.length
     ? items.map((q) => `
       <li>
