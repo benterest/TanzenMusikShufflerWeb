@@ -73,7 +73,10 @@
     </section>
 
     <section class="card">
-      <h2>Playlists <span id="pool" class="muted small"></span></h2>
+      <div class="card-head">
+        <h2>Playlists <span id="pool" class="muted small"></span></h2>
+        <div id="presets" class="presets" role="toolbar" aria-label="Priority presets for the checked playlists"></div>
+      </div>
       <form id="add-form" class="row">
         <input id="add-input" placeholder="Public playlist URL or ID" required>
         <button type="submit">Add</button>
@@ -178,6 +181,8 @@
 
   <script src="playclock.js"></script>
   <script src="shares.js"></script>
+  <script src="steps.js"></script>
+  <script src="presets.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

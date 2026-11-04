@@ -121,6 +121,23 @@ Each playlist has a priority slider from 0 to 100 (default 50). Next to the slid
 
 The priority rules are in `public/shares.js`, used by both the server and the control page.
 
+### Priority presets
+The icons next to the "Playlists" heading set the sliders of all **checked** playlists at once, in the order they are listed (unchecked playlists keep their values). Sloping presets run between 100 and 10, so the last playlist still comes up now and then. The Up next queue isn't changed; press 🔄 Flip Board to draw it again with the new shares.
+
+| Icon | Preset | Values |
+|---|---|---|
+| ─ | Center | Every playlist at 50 |
+| ╲ | Linear | 100 at the first playlist, falling evenly to 10 at the last |
+| ╱ | Reverse linear | 10 at the first, rising evenly to 100 at the last |
+| S-curve down | Bézier | 100 down to 10 along an ease-in-out curve: flat at both ends, steep in the middle |
+| S-curve up | Reverse Bézier | 10 up to 100 along the same curve |
+| zigzag | Chess | 100 and 30, alternating row by row |
+| ⏩ | Fast | Fast dances 100, Cha Cha and Discofox 50, slow dances 20 |
+| snail | Langsamer | Slow dances 100, Cha Cha and Discofox 50, fast dances 20 |
+| die | Random | A random value from 10 to 100 for each playlist |
+
+Fast and Langsamer recognise the dance from the playlist name, the same way as the dance step footprints (`public/steps.js`). Fast dances: Viennese Waltz, Quickstep, Jive, Paso Doble, Samba, Tango, Salsa. Slow dances: Slow Waltz, Slowfox, Rumba. A playlist whose name names no dance gets 50. The presets are in `public/presets.js`.
+
 Each playlist has its own shuffle "bag": every track in it is drawn once before the bag is reshuffled. A track that is already queued or playing is never drawn again. Tracks removed by ✕ or Flip Board go back into the bag unplayed, so they can still come up later. The queue is saved in `/data` and survives restarts.
 
 ### Deezer's repeat setting

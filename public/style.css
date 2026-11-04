@@ -195,6 +195,10 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: 14px; col
 .card-head h2 { margin: 0; }
 .head-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .head-actions button { padding: 6px 10px; font-size: 14px; }
+/* Priority presets: small icon buttons next to "Playlists" */
+.presets { display: flex; flex-wrap: wrap; gap: 4px; }
+.presets button { padding: 3px; line-height: 0; }
+.presets svg { width: 22px; height: 22px; display: block; }
 
 .queue li { cursor: grab; user-select: none; }
 .queue li.dragging { opacity: .4; }

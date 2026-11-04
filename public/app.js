@@ -530,6 +530,41 @@ $('playlists').addEventListener('change', (e) => {
   act(() => api('PATCH', 'api/settings', { playlistPriorities: { [id]: value } }));
 });
 
+// ---------- priority presets (icons next to "Playlists", see presets.js) ----------
+
+// Each icon shows the values from the first playlist (left) to the last
+// (right) as a line: flat, straight, S-curve, zigzag. Random is a die; Fast
+// and Langsamer depend on the playlist names, so they get a symbol instead:
+// fast-forward and a snail.
+const PRESET_ICONS = {
+  center: '<path d="M3 12H21"/>',
+  linear: '<path d="M3 5L21 19"/>',
+  'linear-rev': '<path d="M3 19L21 5"/>',
+  bezier: '<path d="M3 5C11 5 13 19 21 19"/>',
+  'bezier-rev': '<path d="M3 19C11 19 13 5 21 5"/>',
+  chess: '<path d="M3 6L7.5 18L12 6L16.5 18L21 6"/>',
+  fast: '<path d="M3 5l8.5 7L3 19zM12 5l8.5 7L12 19z" fill="currentColor" stroke="none"/>',
+  slow: '<circle cx="10" cy="11.5" r="6"/><path d="M10 11.5a1.6 1.6 0 1 1 1.6 1.6 3.2 3.2 0 0 1-3.2-3.2 4.6 4.6 0 0 1 4.6-4.6"/><path d="M2.5 18.5H18c1.7 0 3-1.3 3-3V12M19.5 12l-1.2-3M21.5 12l1-3"/>',
+  random: '<rect x="4" y="4" width="16" height="16" rx="3"/><g fill="currentColor" stroke="none"><circle cx="8.5" cy="8.5" r="1.4"/><circle cx="15.5" cy="8.5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="8.5" cy="15.5" r="1.4"/><circle cx="15.5" cy="15.5" r="1.4"/></g>',
+};
+const presetIcon = (p) => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${PRESET_ICONS[p.id]}</svg>`;
+
+$('presets').innerHTML = Presets.PRESETS.map((p) => `
+  <button type="button" class="icon" data-preset="${p.id}" title="${esc(p.title)}" aria-label="${esc(p.label)}">${presetIcon(p)}</button>`).join('');
+
+$('presets').onclick = (e) => {
+  const btn = e.target.closest('button[data-preset]');
+  if (!btn || !snap) return;
+  const preset = Presets.PRESETS.find((p) => p.id === btn.dataset.preset);
+  // Checked playlists only, in the order they are listed.
+  const active = snap.playlists.filter((p) => p.share !== null);
+  if (!active.length) return showError('Check at least one playlist first.');
+  const values = preset.apply(active);
+  const changed = Object.fromEntries(active.map((p, i) => [p.id, Shares.clampPriority(values[i])]));
+  snap.settings.playlistPriorities = { ...snap.settings.playlistPriorities, ...changed };
+  act(() => api('PATCH', 'api/settings', { playlistPriorities: changed }));
+};
+
 // ---------- playlist track panel ----------
 
 let openPlaylistId = null;
