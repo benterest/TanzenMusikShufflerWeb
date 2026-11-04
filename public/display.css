@@ -6,6 +6,11 @@
   --faint: rgba(255, 255, 255, .14);
   --accent: #c27bff;
 }
+/* Spotify green when Spotify is the music service (see style.css). */
+:root[data-service="spotify"] {
+  --bg: #060807;
+  --accent: #1ed760;
+}
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }

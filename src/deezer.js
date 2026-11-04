@@ -37,16 +37,16 @@ async function resolveId(input, wanted, refusal, unknown) {
     [, kind, id] = kindOf(res.url);
     if (!kind) [, kind, id] = kindOf(await res.text());
   }
-  if (!kind) throw new Error(unknown);
+  if (!kind) throw new Error(/spotify\.(com|link)|^spotify:/i.test(text) ? `${unknown} This is a Spotify link; the music service is set to Deezer in Settings.` : unknown);
   if (kind.toLowerCase() !== wanted) throw new Error(refusal);
   return id;
 }
 
 const resolvePlaylistId = (input) => resolveId(input, 'playlist',
-  'Only playlists (playlist links) are accepted.', 'Could not recognize a playlist URL or ID.');
+  'Only playlists (playlist links) are accepted.', 'Could not recognize a Deezer playlist URL or ID.');
 
 const resolveTrackId = (input) => resolveId(input, 'track',
-  'Only songs (track links) are accepted.', 'Could not recognize a song URL or ID.');
+  'Only songs (track links) are accepted.', 'Could not recognize a Deezer song URL or ID.');
 
 function toTrack(t) {
   return {
@@ -71,6 +71,7 @@ async function fetchPlaylist(id) {
   }
   return {
     id: String(meta.id),
+    provider: 'deezer',
     title: meta.title,
     creator: meta.creator ? meta.creator.name : '',
     picture: meta.picture_medium,

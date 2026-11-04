@@ -18,8 +18,9 @@ const fmt = (s) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
-// Deezer cover URLs encode the size (".../250x250-000000-80-0-0.jpg").
-const bigCover = (url) => (url ? url.replace(/\/\d+x\d+-/, '/1000x1000-') : '');
+// Deezer cover URLs encode the size (".../250x250-000000-80-0-0.jpg");
+// Spotify's have a size code in the image id (00001e02 = 300px, 0000b273 = 640px).
+const bigCover = (url) => (url ? url.replace(/\/\d+x\d+-/, '/1000x1000-').replace(/(\/image\/ab67616d)00001e02/, '$10000b273') : '');
 
 const playlistTitle = (id) => ((snap && snap.playlists.find((p) => p.id === id)) || {}).title || '';
 
@@ -82,6 +83,9 @@ function slideQueueIn() {
 
 function render(s) {
   snap = s;
+  // Colours follow the music service, like the control page.
+  document.documentElement.dataset.service = s.settings.service;
+  localStorage.setItem('tms.service', s.settings.service);
   const cur = s.current;
   const t = cur && cur.track;
 
@@ -111,7 +115,7 @@ function render(s) {
   // state label
   let label = '';
   if (t && cur.endedAt) label = 'Next track coming up';
-  else if (clock.running) label = cur.external ? 'Now playing · picked in Deezer' : 'Now playing';
+  else if (clock.running) label = cur.external ? `Now playing · picked in ${cur.output === 'spotify' ? 'Spotify' : 'Deezer'}` : 'Now playing';
   else if (t && clock.position() > 0) label = 'Paused';
   $('state').textContent = label;
   $('state').className = 'state' + (label === 'Paused' ? ' paused' : '');

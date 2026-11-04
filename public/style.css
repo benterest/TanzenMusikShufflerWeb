@@ -4,8 +4,9 @@
   --text: #1d1b22;
   --muted: #6b6775;
   --border: #e2dfe8;
-  --accent: #a238ff;
-  --accent-text: #ffffff;
+  --accent: #a238ff;        /* fills: buttons, progress bar, tags */
+  --accent-text: #ffffff;   /* text on an accent fill */
+  --link: var(--accent);    /* accent-coloured text on the page background */
   --ok: #1b7f4b;
   --bad: #b3261e;
   --warn: #b7791f;
@@ -19,6 +20,32 @@
     --border: #2e2b36;
     --accent: #b866ff;
     --bad: #ff7b72; /* readable on the dark background */
+  }
+}
+
+/* The colours follow the music service chosen in Settings (<html data-service>):
+   Deezer keeps the purple above, Spotify uses its green with neutral greys.
+   Spotify green is too light for text on white, so links get a darker green
+   in the light theme, and accent fills carry black text as in Spotify's apps. */
+:root[data-service="spotify"] {
+  --bg: #f3f5f4;
+  --card: #ffffff;
+  --text: #191c1a;
+  --muted: #646e68;
+  --border: #dde4df;
+  --accent: #1db954;
+  --accent-text: #000000;
+  --link: #117a36;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-service="spotify"] {
+    --bg: #121212;
+    --card: #1c1c1c;
+    --text: #ececec;
+    --muted: #a7a7a7;
+    --border: #2c2c2c;
+    --accent: #1ed760;
+    --link: #1ed760;
   }
 }
 
@@ -37,7 +64,7 @@ header {
 h1 { font-size: 20px; margin: 0; }
 h2 { font-size: 16px; margin: 0 0 12px; }
 main { max-width: 1100px; margin: 0 auto; padding: 0 16px 40px; display: grid; gap: 16px; }
-a { color: var(--accent); }
+a { color: var(--link); }
 
 .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
 .muted { color: var(--muted); }
@@ -172,7 +199,7 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: 14px; col
 .queue li.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
 .queue li.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
 .queue .pos { width: 1.6em; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
-.queue li:first-child .pos { color: var(--accent); font-weight: 700; }
+.queue li:first-child .pos { color: var(--link); font-weight: 700; }
 .queue .dur { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
 .queue .acts { display: flex; gap: 2px; flex: none; }
 .queue .acts button { padding: 2px 7px; font-size: 13px; }

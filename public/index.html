@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tanzen Music Shuffler</title>
   <link rel="stylesheet" href="style.css">
+  <script>document.documentElement.dataset.service = localStorage.getItem('tms.service') || 'deezer';</script>
 </head>
 <body>
   <header>
     <h1>Tanzen Music Shuffler</h1>
     <div class="badges">
-      <span class="badge" data-badge="deezer">Deezer tab</span>
+      <span class="badge" data-badge="tab">Deezer tab</span>
       <span class="badge" data-badge="preview">Preview</span>
       <button id="btn-settings" class="gear" type="button" title="Settings" aria-label="Settings" aria-haspopup="dialog"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
     </div>
@@ -95,14 +96,14 @@
     </section>
   </main>
 
-  <footer class="site-footer">Tanzen Music Shuffler · shuffles your Deezer dance playlists by genre share and plays them in your own Deezer tab.</footer>
+  <footer class="site-footer">Tanzen Music Shuffler · shuffles your Deezer or Spotify dance playlists by genre share and plays them in your own browser tab.</footer>
 
   <dialog id="settings-dialog" class="modal" aria-label="Settings">
     <div class="modal-body">
       <div class="modal-head">
         <div class="tabs" role="tablist" aria-label="Settings sections">
           <button role="tab" id="tab-settings" aria-controls="panel-settings" aria-selected="true">Settings</button>
-          <button role="tab" id="tab-connect" aria-controls="panel-connect" aria-selected="false" tabindex="-1">Connect Deezer</button>
+          <button role="tab" id="tab-connect" aria-controls="panel-connect" aria-selected="false" tabindex="-1">Connect</button>
           <button role="tab" id="tab-history" aria-controls="panel-history" aria-selected="false" tabindex="-1">History</button>
         </div>
         <button id="settings-close" type="button">✕ Close</button>
@@ -110,9 +111,15 @@
       <section id="panel-settings" role="tabpanel" aria-labelledby="tab-settings">
         <div class="settings-cols">
           <div class="settings-col">
+            <label>Music service
+              <select id="set-service" title="Each service keeps its own playlists, queue and song requests. Switching stops playback.">
+                <option value="deezer">Deezer</option>
+                <option value="spotify">Spotify</option>
+              </select>
+            </label>
             <label>Output
               <select id="set-output">
-                <option value="deezer">Deezer tab</option>
+                <option value="tab" id="output-tab">Deezer tab</option>
                 <option value="preview">30 s preview in this page</option>
               </select>
             </label>
@@ -135,14 +142,20 @@
       </section>
       <section id="panel-connect" role="tabpanel" aria-labelledby="tab-connect" hidden>
         <div class="badges status-row">
-          <span class="badge" data-badge="deezer">Deezer tab</span>
+          <span class="badge" data-badge="tab">Deezer tab</span>
           <span class="badge" data-badge="preview">Preview</span>
         </div>
-        <ol class="steps">
+        <ol class="steps" data-service="deezer">
           <li>Install the <a href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a> browser extension. In Chrome, also turn on "Allow User Scripts" in the extension's details.</li>
-          <li>Click <a id="userscript-link" href="deezer-shuffler.user.js">Install userscript</a> and confirm in Tampermonkey.</li>
+          <li>Click <a href="deezer-shuffler.user.js">Install userscript</a> and confirm in Tampermonkey.</li>
           <li>Open <b>exactly one</b> tab on <a href="https://www.deezer.com/" target="_blank" rel="noopener">deezer.com</a>, signed in, and click anywhere on the page once (required by the browser's autoplay policy). When Tampermonkey asks to allow access to the server on first connect, choose "Always allow".</li>
           <li>When the "Deezer tab" badge (above, and at the top of the page) turns green, press ⏭ Next track.</li>
+        </ol>
+        <ol class="steps" data-service="spotify" hidden>
+          <li>Install the <a href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a> browser extension. In Chrome, also turn on "Allow User Scripts" in the extension's details.</li>
+          <li>Click <a href="spotify-shuffler.user.js">Install userscript</a> and confirm in Tampermonkey.</li>
+          <li>Open <b>exactly one</b> tab on <a href="https://open.spotify.com/" target="_blank" rel="noopener">open.spotify.com</a>, signed in, and click anywhere on the page once (required by the browser's autoplay policy). When Tampermonkey asks to allow access to the server on first connect, choose "Always allow". Don't play Spotify on another device with the same account at the same time: Spotify then stops the web player.</li>
+          <li>When the "Spotify tab" badge (above, and at the top of the page) turns green, press ⏭ Next track. The tab moves to the page of each track it plays.</li>
         </ol>
       </section>
       <section id="panel-history" role="tabpanel" aria-labelledby="tab-history" hidden>

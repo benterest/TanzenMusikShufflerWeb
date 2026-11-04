@@ -1,11 +1,13 @@
-// Tanzen Music Shuffler: picks random tracks from public Deezer playlists and
-// sends "play" commands to a player (userscript in a deezer.com tab, or the
-// preview player in the control page). Zero dependencies, Node >= 20.
+// Tanzen Music Shuffler: picks random tracks from public Deezer or Spotify
+// playlists and sends "play" commands to a player (userscript in a deezer.com
+// or open.spotify.com tab, or the preview player in the control page).
+// Zero dependencies, Node >= 20.
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const deezer = require('./deezer');
+const spotify = require('./spotify');
 const store = require('./store');
 const Shares = require('../public/shares');
 
@@ -27,7 +29,26 @@ if (state.settings.playlistWeights) {
   }
   delete state.settings.playlistWeights;
 }
+// Older versions had only Deezer, and output 'deezer' meant the Deezer tab.
+if (state.settings.output !== 'preview') state.settings.output = 'tab';
+for (const p of Object.values(state.playlists)) p.provider ||= 'deezer';
 state.settings.playlistShares = Shares.normalize(state.settings.playlistShares, state.settings.activePlaylistIds);
+
+// ---------- music service ----------
+// One service is used at a time. Its playlists, active set, shares, queue and
+// requests are what the rest of the server works with; the other service's
+// active set, shares, queue and requests wait in state.stash.
+
+const PROVIDERS = { deezer, spotify };
+const SERVICE_NAMES = { deezer: 'Deezer', spotify: 'Spotify' };
+if (!PROVIDERS[state.settings.service]) state.settings.service = 'deezer';
+
+const provider = () => PROVIDERS[state.settings.service];
+const serviceName = () => SERVICE_NAMES[state.settings.service];
+const ofService = (pl) => !!pl && pl.provider === state.settings.service;
+// Output for play commands and the current track: the service's tab
+// ('deezer' / 'spotify', as the userscripts expect) or 'preview'.
+const playOutput = () => (state.settings.output === 'preview' ? 'preview' : state.settings.service);
 
 const runtime = {
   bags: {},                          // playlistId -> { key, ids } shuffle bag per playlist
@@ -270,11 +291,14 @@ async function playNext() {
   const item = state.queue.shift();
   if (!item) throw new Error('No playable tracks in the active playlists.');
   const { track } = item;
-  const { output, maxPlaySeconds, fadeSeconds } = state.settings;
+  const { maxPlaySeconds, fadeSeconds } = state.settings;
+  const output = playOutput();
   const cmd = { type: 'play', output, track, maxPlaySeconds, fadeSeconds };
   if (output === 'preview') {
     try {
-      cmd.previewUrl = await deezer.fetchPreviewUrl(track.id);
+      // Deezer preview URLs are signed and expire, so they are fetched right
+      // before playing; Spotify's come with the playlist.
+      cmd.previewUrl = track.previewUrl || await provider().fetchPreviewUrl(track.id);
     } catch (e) {
       state.queue.unshift(item); // keep the track at the head of the queue
       throw e;
@@ -305,6 +329,7 @@ function addHistory(track, extra = {}) {
   state.history.unshift({
     id: track.id, title: track.title, artist: track.artist,
     playlistId: track.playlistId || null, playlistTitle: pl ? pl.title : '',
+    provider: state.settings.service,
     ...extra, at: new Date().toISOString(),
   });
   state.history.length = Math.min(state.history.length, HISTORY_MAX);
@@ -358,11 +383,12 @@ function findKnownTrack(id) {
   return null;
 }
 
-// A track picked directly in Deezer becomes the current track. The queue is
-// kept as it is, so playback continues from it once this track ends.
-function startExternal(ev) {
+// A track picked directly in the Deezer or Spotify tab becomes the current
+// track. The queue is kept as it is, so playback continues from it once this
+// track ends.
+function startExternal(kind, ev) {
   const id = String(ev.songId || '');
-  if (!id || state.settings.output !== 'deezer') return;
+  if (!id || playOutput() !== kind) return;
   clearTimeout(runtime.advanceTimer);
 
   const known = findKnownTrack(id);
@@ -371,14 +397,14 @@ function startExternal(ev) {
     title: ev.title || '',
     artist: ev.artist || '',
     album: ev.album || '',
-    cover: ev.albumPicture ? `https://cdn-images.dzcdn.net/images/cover/${ev.albumPicture}/250x250-000000-80-0-0.jpg` : '',
+    cover: ev.cover || (ev.albumPicture ? `https://cdn-images.dzcdn.net/images/cover/${ev.albumPicture}/250x250-000000-80-0-0.jpg` : ''),
     duration: Math.round(Number(ev.duration) || 0),
     readable: true,
     playlistId: null,
   };
   const seq = `ext-${Date.now()}`;
   runtime.current = {
-    seq, track, playlistId: track.playlistId, startedAt: Date.now(), output: 'deezer',
+    seq, track, playlistId: track.playlistId, startedAt: Date.now(), output: kind,
     external: true, startPosition: Number(ev.position) || 0,
   };
   // Don't play it twice: drop it from the queue if it was waiting there.
@@ -389,28 +415,35 @@ function startExternal(ev) {
 
   // Fill in artwork and length from the public API for tracks not in any playlist.
   if (!known) {
-    deezer.fetchTrack(id).then((t) => {
+    provider().fetchTrack(id).then((t) => {
       if (!runtime.current || runtime.current.seq !== seq) return;
-      runtime.current = { ...runtime.current, track: { ...t, playlistId: null } };
+      const cover = t.cover || runtime.current.track.cover;
+      runtime.current = { ...runtime.current, track: { ...t, cover, playlistId: null } };
       broadcast();
     }).catch(() => {});
   }
 }
 
 function handlePlayerEvent(ev) {
-  const kind = ev.kind === 'preview' ? 'preview' : 'deezer';
+  const kind = ['preview', 'spotify'].includes(ev.kind) ? ev.kind : 'deezer';
   const p = (runtime.players[kind] ||= { lastSeen: 0, status: null });
   p.lastSeen = Date.now();
   if (ev.status) {
     p.status = ev.status;
     countPlayTime(kind, p, ev.status);
+    // The Spotify tab knows the artwork of what it plays: use it when the
+    // background fill (fillCovers) has not reached this track yet.
+    const cur = runtime.current;
+    if (kind === 'spotify' && ev.status.cover && cur && !cur.track.cover && ev.status.songId === cur.track.id) {
+      setCover(cur.track.id, ev.status.cover);
+    }
   }
 
   const cur = runtime.current;
   const isCurrent = cur && cur.output === kind
     && (ev.seq === cur.seq || (cur.external && ev.external && String(ev.songId) === cur.track.id));
-  if (ev.type === 'external' && kind === 'deezer') {
-    startExternal(ev);
+  if (ev.type === 'external' && kind !== 'preview') {
+    startExternal(kind, ev);
   } else if (ev.type === 'ended' && isCurrent) {
     runtime.current = { ...cur, endedAt: Date.now() };
     scheduleAdvance();
@@ -419,6 +452,73 @@ function handlePlayerEvent(ev) {
     scheduleAdvance();
   }
   broadcast();
+}
+
+// ---------- Spotify artwork ----------
+// The Spotify playlist embed has no artwork per track. It is filled in from
+// each track's own embed page in the background, a few at a time.
+
+function setCover(id, cover) {
+  const lists = [
+    ...Object.values(state.playlists).filter((p) => p.provider === 'spotify').map((p) => p.tracks),
+    state.queue.map((q) => q.track),
+    state.requests.map((x) => x.track),
+  ];
+  for (const list of lists) for (const t of list) if (t.id === id && !t.cover) t.cover = cover;
+  const cur = runtime.current;
+  if (cur && cur.track.id === id && !cur.track.cover) runtime.current = { ...cur, track: { ...cur.track, cover } };
+}
+
+const coverFills = new Set();
+async function fillCovers(pid) {
+  if (coverFills.has(pid)) return;
+  coverFills.add(pid);
+  let shownAt = Date.now();
+  try {
+    const pl = state.playlists[pid];
+    const todo = pl ? pl.tracks.filter((t) => !t.cover).map((t) => t.id) : [];
+    const worker = async () => {
+      while (todo.length && state.playlists[pid]) {
+        const id = todo.shift();
+        try {
+          const t = await spotify.fetchTrack(id);
+          if (t.cover) setCover(id, t.cover);
+        } catch { /* keep going without this one */ }
+        if (Date.now() - shownAt > 2000) {
+          shownAt = Date.now();
+          broadcast();
+        }
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+  } finally {
+    coverFills.delete(pid);
+    store.save(state);
+    broadcast();
+  }
+}
+
+// Each service keeps its own active playlists, shares, queue and requests.
+// Switching stops playback and brings back the other service's set.
+function switchService(next) {
+  clearTimeout(runtime.advanceTimer);
+  if (runtime.current) {
+    sendCommand({ type: 'stop' });
+    runtime.current = null;
+  }
+  const s = state.settings;
+  state.stash[s.service] = {
+    activePlaylistIds: s.activePlaylistIds, playlistShares: s.playlistShares,
+    queue: state.queue, requests: state.requests,
+  };
+  const saved = state.stash[next] || {};
+  delete state.stash[next];
+  s.service = next;
+  s.activePlaylistIds = (saved.activePlaylistIds || []).filter((id) => ofService(state.playlists[id]));
+  s.playlistShares = saved.playlistShares || {};
+  state.queue = (saved.queue || []).filter((q) => !q.track.playlistId || ofService(state.playlists[q.track.playlistId]));
+  state.requests = saved.requests || [];
+  runtime.lastError = null;
 }
 
 // ---------- snapshot / SSE ----------
@@ -431,11 +531,14 @@ function snapshot() {
   }
   return {
     settings: state.settings,
-    playlists: Object.values(state.playlists).map((p) => ({
+    // Only the current service's playlists.
+    playlists: Object.values(state.playlists).filter(ofService).map((p) => ({
       id: p.id, title: p.title, creator: p.creator, picture: p.picture, link: p.link,
       trackCount: p.tracks.length, playableCount: p.tracks.filter((t) => t.readable).length,
+      truncated: !!p.truncated,
       share: p.id in state.settings.playlistShares ? state.settings.playlistShares[p.id] : null,
       fetchedAt: p.fetchedAt,
+      coverCount: p.tracks.filter((t) => t.cover).length, // grows while Spotify artwork is filled in
     })),
     poolSize: pool().length,
     remainingInBag: state.settings.activePlaylistIds.reduce((s, pid) => s + ((runtime.bags[pid] || {}).ids || []).length, 0),
@@ -533,9 +636,10 @@ async function route(req, res, url) {
 
   if (m('POST', /^\/api\/playlists$/)) {
     const body = await readJson(req);
-    const id = await deezer.resolvePlaylistId(body.input);
-    const pl = await deezer.fetchPlaylist(id);
+    const id = await provider().resolvePlaylistId(body.input);
+    const pl = await provider().fetchPlaylist(id);
     state.playlists[pl.id] = pl;
+    if (pl.provider === 'spotify') fillCovers(pl.id);
     if (!state.settings.activePlaylistIds.includes(pl.id)) state.settings.activePlaylistIds.push(pl.id);
     syncShares();
     ensureQueue();
@@ -545,16 +649,22 @@ async function route(req, res, url) {
   }
 
   let r;
-  if ((r = m('POST', /^\/api\/playlists\/(\d+)\/refresh$/))) {
-    const pl = await deezer.fetchPlaylist(r[1]);
+  if ((r = m('POST', /^\/api\/playlists\/([A-Za-z0-9]+)\/refresh$/))) {
+    const old = state.playlists[r[1]];
+    if (!ofService(old)) return sendJson(res, 404, { error: 'Playlist not found.' });
+    const pl = await PROVIDERS[old.provider].fetchPlaylist(r[1]);
+    // Keep artwork already filled in for Spotify tracks.
+    const covers = new Map(old.tracks.map((t) => [t.id, t.cover]));
+    for (const t of pl.tracks) if (!t.cover && covers.get(t.id)) t.cover = covers.get(t.id);
     state.playlists[pl.id] = pl;
+    if (pl.provider === 'spotify') fillCovers(pl.id);
     ensureQueue();
     store.save(state);
     broadcast();
     return sendJson(res, 200, { id: pl.id, trackCount: pl.tracks.length });
   }
 
-  if ((r = m('DELETE', /^\/api\/playlists\/(\d+)$/))) {
+  if ((r = m('DELETE', /^\/api\/playlists\/([A-Za-z0-9]+)$/))) {
     delete state.playlists[r[1]];
     state.settings.activePlaylistIds = state.settings.activePlaylistIds.filter((id) => id !== r[1]);
     state.queue = state.queue.filter((q) => q.track.playlistId !== r[1]);
@@ -567,8 +677,10 @@ async function route(req, res, url) {
 
   if (m('PATCH', /^\/api\/settings$/)) {
     const body = await readJson(req);
-    for (const k of SETTING_KEYS) if (k in body) state.settings[k] = body[k];
-    state.settings.activePlaylistIds = state.settings.activePlaylistIds.map(String).filter((id) => state.playlists[id]);
+    if (PROVIDERS[body.service] && body.service !== state.settings.service) switchService(body.service);
+    for (const k of SETTING_KEYS) if (k in body && k !== 'service') state.settings[k] = body[k];
+    if (state.settings.output !== 'preview') state.settings.output = 'tab';
+    state.settings.activePlaylistIds = state.settings.activePlaylistIds.map(String).filter((id) => ofService(state.playlists[id]));
     syncShares();
     ensureQueue();
     store.save(state);
@@ -581,7 +693,7 @@ async function route(req, res, url) {
     return sendJson(res, 200, { track });
   }
 
-  if ((r = m('GET', /^\/api\/playlists\/(\d+)\/tracks$/))) {
+  if ((r = m('GET', /^\/api\/playlists\/([A-Za-z0-9]+)\/tracks$/))) {
     const pl = state.playlists[r[1]];
     if (!pl) return sendJson(res, 404, { error: 'Playlist not found.' });
     return sendJson(res, 200, { id: pl.id, fetchedAt: pl.fetchedAt, tracks: pl.tracks });
@@ -594,9 +706,9 @@ async function route(req, res, url) {
   if (m('POST', /^\/api\/queue\/front$/)) {
     const body = await readJson(req);
     const pl = state.playlists[String(body.playlistId)];
-    const t = pl && pl.tracks.find((x) => x.id === String(body.trackId));
+    const t = ofService(pl) && pl.tracks.find((x) => x.id === String(body.trackId));
     if (!t) return sendJson(res, 404, { error: 'Track not found.' });
-    if (!t.readable) return sendJson(res, 400, { error: 'This track is not playable on Deezer.' });
+    if (!t.readable) return sendJson(res, 400, { error: `This track is not playable on ${serviceName()}.` });
     const pickedFor = runtime.current ? runtime.current.seq : null;
     state.queue = state.queue.filter((q) => q.track.id !== t.id);
     let at = 0;
@@ -618,11 +730,11 @@ async function route(req, res, url) {
   // playback, until they are added to the queue or cleared.
   if (m('POST', /^\/api\/requests$/)) {
     const body = await readJson(req);
-    const id = await deezer.resolveTrackId(body.input);
+    const id = await provider().resolveTrackId(body.input);
     if (state.requests.some((x) => x.track.id === id)) throw new Error('This song is already in the list.');
     const known = findKnownTrack(id);
-    const t = known || { ...(await deezer.fetchTrack(id)), playlistId: null };
-    if (!t.readable) throw new Error(`"${t.title}" is not playable on Deezer.`);
+    const t = known || { ...(await provider().fetchTrack(id)), playlistId: null };
+    if (!t.readable) throw new Error(`"${t.title}" is not playable on ${serviceName()}.`);
     state.requests.push({ rid: crypto.randomUUID(), track: t });
     store.save(state);
     broadcast();
@@ -734,6 +846,8 @@ async function route(req, res, url) {
 
 // Pre-fill the queue so tracks are ready before the first Next Track.
 if (state.queue.length === 0 && rollDice() > 0) store.save(state);
+// Finish Spotify artwork that a restart interrupted.
+for (const p of Object.values(state.playlists)) if (p.provider === 'spotify' && p.tracks.some((t) => !t.cover)) fillCovers(p.id);
 
 // Docker stops the container with SIGTERM: write pending changes first.
 for (const sig of ['SIGTERM', 'SIGINT']) {
