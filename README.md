@@ -33,6 +33,8 @@ If you switch the output to "30-second preview", you can listen in the control p
 ### Switching the music service
 Each service keeps its own playlists, active selection, shares, Up next queue and song requests. Switching stops the current track and brings back the other service's set as you left it. The history and play time are shared.
 
+The colours follow the service: purple for Deezer, Spotify's green for Spotify. They change on the control page as soon as you pick the service, and on open dance hall displays with the next update.
+
 ## Dance hall display
 **⧉ Dance Hall** in the Now Playing card opens a display-only window (`/display.html`) for projecting in the dance hall. It shows:
 - the current track's large artwork, the dance (playlist name), title and artist

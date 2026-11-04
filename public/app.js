@@ -5,6 +5,13 @@ let snap = null;
 const SERVICE_NAMES = { deezer: 'Deezer', spotify: 'Spotify' };
 const serviceName = (s) => SERVICE_NAMES[s.settings.service] || 'Deezer';
 
+// The page colours follow the music service (see style.css). Remembered so
+// the next page load starts in the right colours.
+function applyServiceTheme(service) {
+  document.documentElement.dataset.service = service;
+  localStorage.setItem('tms.service', service);
+}
+
 // ---------- API ----------
 
 async function api(method, path, body) {
@@ -64,6 +71,7 @@ let shareDrag = null; // { base, next } while a share slider is being moved
 
 function render(s) {
   snap = s;
+  applyServiceTheme(s.settings.service);
   const plTitle = (id) => (s.playlists.find((p) => p.id === id) || {}).title || '';
 
   // badges
@@ -640,6 +648,7 @@ $('set-service').onchange = (e) => {
     return;
   }
   setOpenPlaylist(null);
+  applyServiceTheme(next); // at once, before the server confirms
   act(() => api('PATCH', 'api/settings', { service: next }));
 };
 $('set-autoAdvance').onchange = (e) => act(() => api('PATCH', 'api/settings', { autoAdvance: e.target.checked }));

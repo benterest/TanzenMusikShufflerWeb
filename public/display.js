@@ -83,6 +83,9 @@ function slideQueueIn() {
 
 function render(s) {
   snap = s;
+  // Colours follow the music service, like the control page.
+  document.documentElement.dataset.service = s.settings.service;
+  localStorage.setItem('tms.service', s.settings.service);
   const cur = s.current;
   const t = cur && cur.track;
 
