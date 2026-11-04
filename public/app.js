@@ -2,6 +2,8 @@
 
 const $ = (id) => document.getElementById(id);
 let snap = null;
+const SERVICE_NAMES = { deezer: 'Deezer', spotify: 'Spotify' };
+const serviceName = (s) => SERVICE_NAMES[s.settings.service] || 'Deezer';
 
 // ---------- API ----------
 
@@ -65,14 +67,17 @@ function render(s) {
   const plTitle = (id) => (s.playlists.find((p) => p.id === id) || {}).title || '';
 
   // badges
-  // The connection badges appear in the header and again in the Connect Deezer tab.
-  const dz = s.players.deezer;
+  // The connection badges appear in the header and again in the Connect tab.
+  // The tab badge is for the selected music service's tab.
+  const name = serviceName(s);
+  const tab = s.players[s.settings.service];
   const pv = s.players.preview;
-  for (const el of document.querySelectorAll('[data-badge="deezer"]')) {
-    el.className = 'badge' + (dz && dz.connected ? (dz.status && dz.status.activated === false ? ' warn' : ' ok') : '');
-    el.textContent = dz && dz.connected
-      ? (dz.status && dz.status.limited ? 'Deezer tab (30s-limited account)' : 'Deezer tab connected')
-      : 'No Deezer tab';
+  for (const el of document.querySelectorAll('[data-badge="tab"]')) {
+    el.className = 'badge' + (tab && tab.connected ? (tab.status && tab.status.activated === false ? ' warn' : ' ok') : '');
+    el.textContent = !(tab && tab.connected) ? `No ${name} tab`
+      : tab.status && tab.status.limited ? `${name} tab (30s-limited account)`
+      : tab.status && tab.status.ad ? `${name} tab (ad playing)`
+      : `${name} tab connected`;
   }
   for (const el of document.querySelectorAll('[data-badge="preview"]')) {
     el.className = 'badge' + (pv && pv.connected ? ' ok' : '');
@@ -85,8 +90,8 @@ function render(s) {
   $('np-title').textContent = t ? t.title : '—';
   $('np-artist').textContent = t ? t.artist : '';
   $('np-playlist').textContent = !t ? ''
-    : cur.external ? 'Picked in Deezer · the queue continues after this track'
-    : `${cur.playlistId ? plTitle(cur.playlistId) : 'Requested'} · ${cur.output === 'preview' ? 'Preview' : 'Deezer'}`;
+    : cur.external ? `Picked in ${name} · the queue continues after this track`
+    : `${cur.playlistId ? plTitle(cur.playlistId) : 'Requested'} · ${cur.output === 'preview' ? 'Preview' : name}`;
   $('np-cover').hidden = !(t && t.cover);
   if (t && t.cover) $('np-cover').src = t.cover;
 
@@ -99,6 +104,12 @@ function render(s) {
     const el = $('set-' + k);
     if (document.activeElement !== el) el.value = s.settings[k];
   }
+  if (document.activeElement !== $('set-service')) $('set-service').value = s.settings.service;
+  $('output-tab').textContent = `${name} tab`;
+  $('tab-connect').textContent = `Connect ${name}`;
+  for (const el of document.querySelectorAll('#panel-connect [data-service]')) el.hidden = el.dataset.service !== s.settings.service;
+  $('add-input').placeholder = `Public ${name} playlist URL or ID`;
+  $('req-input').placeholder = `${name} song URL or ID`;
   $('set-autoAdvance').checked = s.settings.autoAdvance;
   $('set-showSteps').checked = s.settings.showSteps !== false;
   $('preview-host-row').hidden = s.settings.output !== 'preview';
@@ -121,7 +132,7 @@ function render(s) {
         ${p.picture ? `<img src="${esc(p.picture)}" alt="">` : ''}
         <div class="grow">
           <div><a href="${esc(p.link)}" target="_blank" rel="noopener">${esc(p.title)}</a></div>
-          <div class="muted small">${esc(p.creator)} · ${p.playableCount}/${p.trackCount} tracks playable</div>
+          <div class="muted small">${esc(p.creator)} · ${p.playableCount}/${p.trackCount} tracks playable${p.truncated ? ' <span title="Spotify shows at most 100 tracks of a playlist without signing in; later tracks are not included.">· first 100 only</span>' : ''}</div>
         </div>
         <label class="share${off ? ' off' : ''}" title="Chance that the next track comes from this playlist. All active playlists add up to 100%.">
           <input type="range" min="0" max="100" step="1" value="${off ? 0 : p.share}" data-share="${p.id}"
@@ -203,7 +214,7 @@ async function refreshHistory(s, force) {
     $('history-count').textContent = `${history.length} track${history.length === 1 ? '' : 's'}`;
     $('history').innerHTML = history.length
       ? history.map((h) => {
-        const src = h.external ? '<span class="src-other">Picked in Deezer</span>'
+        const src = h.external ? `<span class="src-other">Picked in ${SERVICE_NAMES[h.provider] || 'Deezer'}</span>`
           : h.playlistId ? esc(plTitle(h)) : '<span class="src-other">Requested</span>';
         return `<tr><td>${fmtPlayed(h.at)}</td><td>${src}</td><td>${esc(h.title)} <span class="artist">— ${esc(h.artist)}</span></td></tr>`;
       }).join('')
@@ -259,7 +270,7 @@ function renderRequests(s) {
         ${queuedAt.has(x.track.id) ? `<span class="tag" title="Already in Up next">In Up next #${queuedAt.get(x.track.id)}</span>` : ''}
         <button class="icon" data-remove-req="${esc(x.rid)}" title="Remove from this list">✕</button>
       </li>`).join('')
-    : '<li class="muted empty">Paste a Deezer song link (or its ID) and press Request.</li>';
+    : `<li class="muted empty">Paste a ${serviceName(s)} song link (or its ID) and press Request.</li>`;
   if (html !== lastReqHtml) {
     lastReqHtml = html;
     $('req-list').innerHTML = html;
@@ -499,7 +510,9 @@ $('playlists').addEventListener('change', (e) => {
 // ---------- playlist track panel ----------
 
 let openPlaylistId = null;
-const trackCache = new Map(); // playlistId -> { fetchedAt, tracks }
+// The key also changes while Spotify artwork is being filled in.
+const trackKey = (p) => `${p.fetchedAt}|${p.coverCount}`;
+const trackCache = new Map(); // playlistId -> { key, tracks }
 let loadingTracks = null;
 let lastPanelHtml = '';
 
@@ -518,7 +531,7 @@ async function loadTracks(p) {
   loadingTracks = p.id;
   try {
     const data = await api('GET', `api/playlists/${p.id}/tracks`);
-    trackCache.set(p.id, { fetchedAt: data.fetchedAt, tracks: data.tracks });
+    trackCache.set(p.id, { key: trackKey(p), tracks: data.tracks });
   } catch (e) {
     showError(e.message);
   } finally {
@@ -542,11 +555,12 @@ function renderTrackPanel(s) {
 
   const cached = trackCache.get(p.id);
   let html;
-  if (!cached || cached.fetchedAt !== p.fetchedAt) {
+  if (!cached || (cached.key !== trackKey(p) && !lastPanelHtml)) {
     loadTracks(p);
     $('pl-tracks-count').textContent = '';
     html = '<li class="muted">Loading tracks…</li>';
   } else {
+    if (cached.key !== trackKey(p)) loadTracks(p); // refresh in the background, keep showing the list
     const queuedAt = new Map(s.queue.map((q, i) => [q.track.id, i + 1]));
     const playingId = s.current && !s.current.endedAt ? s.current.track.id : null;
     const shown = filter ? cached.tracks.filter((t) => foldText(t.title).includes(filter)) : cached.tracks;
@@ -562,7 +576,7 @@ function renderTrackPanel(s) {
           <div class="muted small">${esc(t.artist)} · ${fmt(t.duration)}</div>
         </div>
         ${mark}
-        <button data-next="${esc(t.id)}" ${t.readable ? '' : 'disabled title="Not playable on Deezer"'}>Add to Next Queue</button>
+        <button data-next="${esc(t.id)}" ${t.readable ? '' : `disabled title="Not playable on ${serviceName(s)}"`}>Add to Next Queue</button>
       </li>`;
     }).join('') || `<li class="muted">${filter ? 'No titles match.' : 'This playlist is empty.'}</li>`;
   }
@@ -616,6 +630,18 @@ for (const k of ['output', 'maxPlaySeconds', 'fadeSeconds', 'gapSeconds']) {
     act(() => api('PATCH', 'api/settings', { [k]: v }));
   };
 }
+// Switching the service stops playback; each service keeps its own
+// playlists, queue and song requests.
+$('set-service').onchange = (e) => {
+  const next = e.target.value;
+  if (snap && snap.current && !snap.current.endedAt
+    && !confirm(`Switch to ${SERVICE_NAMES[next]}? This stops the current track.`)) {
+    e.target.value = snap.settings.service;
+    return;
+  }
+  setOpenPlaylist(null);
+  act(() => api('PATCH', 'api/settings', { service: next }));
+};
 $('set-autoAdvance').onchange = (e) => act(() => api('PATCH', 'api/settings', { autoAdvance: e.target.checked }));
 $('set-showSteps').onchange = (e) => act(() => api('PATCH', 'api/settings', { showSteps: e.target.checked }));
 

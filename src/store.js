@@ -8,7 +8,8 @@ const FILE = path.join(DATA_DIR, 'state.json');
 const DEFAULT_SETTINGS = {
   activePlaylistIds: [],
   autoAdvance: true,
-  output: 'deezer',     // 'deezer' (userscript in a deezer.com tab) | 'preview' (30s MP3 in this page)
+  service: 'deezer',    // 'deezer' | 'spotify': the music service in use (playlists are never mixed)
+  output: 'tab',        // 'tab' (userscript in the service's browser tab) | 'preview' (30s MP3 in this page)
   maxPlaySeconds: 0,    // 0 = play the whole track
   fadeSeconds: 3,
   gapSeconds: 2,
@@ -26,10 +27,11 @@ function load() {
       queue: raw.queue || [],    // [{ qid, track }], head plays next
       current: raw.current || null,
       requests: raw.requests || [], // songs waiting in the "Adding Song" panel: [{ rid, track }]
+      stash: raw.stash || {},       // the other service's active playlists, shares, queue and requests
       stats: { playMs: 0, todayMs: 0, day: '', ...(raw.stats || {}) }, // kept when the history is cleared
     };
   } catch {
-    return { playlists: {}, settings: { ...DEFAULT_SETTINGS }, history: [], queue: [], current: null, requests: [], stats: { playMs: 0, todayMs: 0, day: '' } };
+    return { playlists: {}, settings: { ...DEFAULT_SETTINGS }, history: [], queue: [], current: null, requests: [], stash: {}, stats: { playMs: 0, todayMs: 0, day: '' } };
   }
 }
 
