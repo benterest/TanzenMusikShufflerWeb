@@ -124,7 +124,7 @@ Each playlist has a priority slider from 0 to 100 (default 50). Next to the slid
 The priority rules are in `public/shares.js`, used by both the server and the control page.
 
 ### Priority presets
-The icons next to the "Playlists" heading set the sliders of all **checked** playlists at once, in the order they are listed (unchecked playlists keep their values). Sloping presets run between 100 and 10, so the last playlist still comes up now and then. The Up next queue isn't changed; press 🔄 Flip Board to draw it again with the new shares.
+The icons next to the "Playlists" heading set the sliders of all **checked** playlists at once, in the order they are listed (unchecked playlists keep their values). Sloping presets run between 100 and 10, so the last playlist still comes up now and then. The ↔ knob after the icons moves all checked sliders together: drag it left to lower them, right to raise them, by the same amount (up to ±100 at about 80 px of drag; values stop at 0 and 100). Raising everything evens out the shares, lowering everything sharpens the differences. The Up next queue isn't changed; press 🔄 Flip Board to draw it again with the new shares.
 
 | Icon | Preset | Values |
 |---|---|---|

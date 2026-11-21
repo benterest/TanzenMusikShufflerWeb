@@ -199,6 +199,10 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: 14px; col
 .presets { display: flex; flex-wrap: wrap; gap: 4px; }
 .presets button { padding: 3px; line-height: 0; }
 .presets svg { width: 22px; height: 22px; display: block; }
+/* Joystick knob: drag sideways to shift all checked priorities */
+.presets .nudge { cursor: ew-resize; touch-action: none; }
+.nudge .nudge-knob { transition: transform .18s ease-out; }
+.nudge.active .nudge-knob { transition: none; }
 
 .queue li { cursor: grab; user-select: none; }
 .queue li.dragging { opacity: .4; }

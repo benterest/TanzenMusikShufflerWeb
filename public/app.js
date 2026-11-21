@@ -67,7 +67,7 @@ function renderTime() {
 setInterval(renderTime, 250);
 
 let lastPlaylistsHtml = '';
-let shareDrag = null; // { id, value } while a priority slider is being moved
+let shareDrag = null; // { id, value } while a priority slider (or the nudge knob) is being moved
 
 // Share label: rounded percent, "<1%" for a small but non-zero share, "—" when inactive.
 const fmtShare = (pct) => (pct === null || pct === undefined ? '—' : pct > 0 && pct < 1 ? '<1%' : `${Math.round(pct)}%`);
@@ -507,23 +507,26 @@ function renderShareNote(playlists) {
 
 // Priority sliders: moving one changes only its own value; the share labels
 // of all active playlists follow live. The value is saved on release.
-function showShares(id, value) {
-  const priorities = { ...snap.settings.playlistPriorities, [id]: value };
+// `changed` is { playlistId: priority } for the values being moved.
+function showShares(changed) {
+  const priorities = { ...snap.settings.playlistPriorities, ...changed };
   const pct = Shares.percentages(priorities, snap.settings.activePlaylistIds);
   const playlists = snap.playlists.map((p) => ({ ...p, share: p.id in pct ? pct[p.id] : null }));
   for (const p of playlists) {
     const label = $('playlists').querySelector(`[data-share-label="${p.id}"]`);
     if (label) label.textContent = fmtShare(p.share);
   }
-  const own = $('playlists').querySelector(`[data-priority-label="${id}"]`);
-  if (own) own.textContent = value;
+  for (const [id, value] of Object.entries(changed)) {
+    const own = $('playlists').querySelector(`[data-priority-label="${id}"]`);
+    if (own) own.textContent = value;
+  }
   renderShareNote(playlists);
 }
 $('playlists').addEventListener('input', (e) => {
   const id = e.target.dataset.share;
   if (!id) return;
   shareDrag = { id, value: Number(e.target.value) };
-  showShares(id, shareDrag.value);
+  showShares({ [id]: shareDrag.value });
 });
 $('playlists').addEventListener('change', (e) => {
   if (!e.target.dataset.share || !shareDrag) return;
@@ -553,7 +556,9 @@ const PRESET_ICONS = {
 const presetIcon = (p) => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${PRESET_ICONS[p.id]}</svg>`;
 
 $('presets').innerHTML = Presets.PRESETS.map((p) => `
-  <button type="button" class="icon" data-preset="${p.id}" title="${esc(p.title)}" aria-label="${esc(p.label)}">${presetIcon(p)}</button>`).join('');
+  <button type="button" class="icon" data-preset="${p.id}" title="${esc(p.title)}" aria-label="${esc(p.label)}">${presetIcon(p)}</button>`).join('')
+  + `<button type="button" class="icon nudge" id="nudge" title="Drag left to lower, right to raise the priority of every checked playlist. Arrow keys work too." aria-label="Raise or lower all checked priorities">
+    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g class="nudge-knob"><path d="M3 12H21M7 8L3 12L7 16M17 8L21 12L17 16"/></g></svg></button>`;
 
 $('presets').onclick = (e) => {
   const btn = e.target.closest('button[data-preset]');
@@ -567,6 +572,68 @@ $('presets').onclick = (e) => {
   snap.settings.playlistPriorities = { ...snap.settings.playlistPriorities, ...changed };
   act(() => api('PATCH', 'api/settings', { playlistPriorities: changed }));
 };
+
+// Joystick knob after the presets: dragging it shifts the priority of every
+// checked playlist by the same amount, live, by how far the pointer moved
+// from where the drag started (at most NUDGE_REACH px either way, which is
+// ±100). Values stop at 0 and 100. On release the knob springs back to the
+// middle and the values are saved.
+const NUDGE_REACH = 80;  // px of pointer travel for the full ±100
+const NUDGE_TILT = 5;    // px the knob itself moves at full reach
+let nudge = null;        // { x, base: { id: priority }, changed } while dragging
+
+function nudgeTo(dx) {
+  dx = Math.max(-NUDGE_REACH, Math.min(NUDGE_REACH, dx));
+  const knob = $('nudge').querySelector('.nudge-knob');
+  knob.setAttribute('transform', `translate(${(dx / NUDGE_REACH) * NUDGE_TILT} 0)`);
+  const delta = Math.round((dx / NUDGE_REACH) * 100);
+  nudge.changed = Object.fromEntries(Object.entries(nudge.base).map(([id, v]) => [id, Shares.clampPriority(v + delta)]));
+  for (const [id, v] of Object.entries(nudge.changed)) {
+    const slider = $('playlists').querySelector(`[data-share="${id}"]`);
+    if (slider) slider.value = v;
+  }
+  showShares(nudge.changed);
+}
+
+function nudgeStart() {
+  if (!snap) return false;
+  const active = snap.playlists.filter((p) => p.share !== null);
+  if (!active.length) { showError('Check at least one playlist first.'); return false; }
+  nudge = { x: 0, base: Object.fromEntries(active.map((p) => [p.id, Shares.priorityOf(snap.settings.playlistPriorities, p.id)])), changed: {} };
+  shareDrag = { nudge: true }; // keeps the playlist list from being rebuilt mid-drag
+  return true;
+}
+
+function nudgeEnd() {
+  if (!nudge) return;
+  const changed = Object.fromEntries(Object.entries(nudge.changed).filter(([id, v]) => v !== nudge.base[id]));
+  nudge = null;
+  shareDrag = null;
+  $('nudge').querySelector('.nudge-knob').removeAttribute('transform');
+  $('nudge').classList.remove('active');
+  if (!Object.keys(changed).length) return;
+  snap.settings.playlistPriorities = { ...snap.settings.playlistPriorities, ...changed };
+  act(() => api('PATCH', 'api/settings', { playlistPriorities: changed }));
+}
+
+$('nudge').addEventListener('pointerdown', (e) => {
+  if (e.button !== 0 || !nudgeStart()) return;
+  e.preventDefault();
+  nudge.x = e.clientX;
+  $('nudge').setPointerCapture(e.pointerId);
+  $('nudge').classList.add('active');
+});
+$('nudge').addEventListener('pointermove', (e) => { if (nudge) nudgeTo(e.clientX - nudge.x); });
+$('nudge').addEventListener('pointerup', nudgeEnd);
+$('nudge').addEventListener('pointercancel', nudgeEnd);
+// Keyboard: each arrow press is one step of 5.
+$('nudge').addEventListener('keydown', (e) => {
+  const dir = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
+  if (!dir || !nudgeStart()) return;
+  e.preventDefault();
+  nudgeTo(dir * NUDGE_REACH * 0.05);
+  nudgeEnd();
+});
 
 // ---------- playlist track panel ----------
 
