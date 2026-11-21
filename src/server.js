@@ -67,6 +67,9 @@ const runtime = {
   players: {},                       // kind -> { lastSeen, status }
   advanceTimer: null,
   lastError: null,
+  // Set by Clear: the queue is not refilled automatically, so playback stops
+  // after the current track. Adding tracks or pressing Next Track ends it.
+  queueCleared: false,
 };
 // The current track { seq, track, playlistId, startedAt, output, endedAt?, hint? }
 // is saved with the state, so restarting the server (e.g. a redeploy) does not
@@ -225,6 +228,7 @@ function spreadPlaylists(items, prevPid) {
 }
 
 function rollDice() {
+  runtime.queueCleared = false;
   const last = state.queue.length ? state.queue[state.queue.length - 1].track : runtime.current && runtime.current.track;
   const prevPid = last && last.playlistId;
   const added = draw(QUEUE_ROLL, prevPid).map((track) => ({ qid: crypto.randomUUID(), track }));
@@ -235,7 +239,15 @@ function rollDice() {
 }
 
 function ensureQueue() {
-  if (state.queue.length === 0) rollDice();
+  if (state.queue.length === 0 && !runtime.queueCleared) rollDice();
+}
+
+// Empties Up next; the current track keeps playing and nothing follows it.
+function clearQueue() {
+  const old = state.queue;
+  state.queue = [];
+  returnToBag(old);
+  runtime.queueCleared = true;
 }
 
 function flipBoard() {
@@ -293,8 +305,10 @@ function waitForCommand(res, since, timeoutMs) {
   });
 }
 
-async function playNext() {
+// `manual` is a Next Track press: it rolls new tracks even after Clear.
+async function playNext(manual = false) {
   clearTimeout(runtime.advanceTimer);
+  if (manual) runtime.queueCleared = false;
   ensureQueue();
   const item = state.queue.shift();
   if (!item) throw new Error('No playable tracks in the active playlists.');
@@ -326,6 +340,7 @@ async function playNext() {
 function scheduleAdvance() {
   clearTimeout(runtime.advanceTimer);
   if (!state.settings.autoAdvance) return;
+  if (runtime.queueCleared && state.queue.length === 0) return; // cleared: stop here
   runtime.advanceTimer = setTimeout(() => {
     playNext().catch((e) => { runtime.lastError = e.message; broadcast(); });
   }, Math.max(0, state.settings.gapSeconds) * 1000);
@@ -510,6 +525,7 @@ async function fillCovers(pid) {
 // Switching stops playback and brings back the other service's set.
 function switchService(next) {
   clearTimeout(runtime.advanceTimer);
+  runtime.queueCleared = false; // the other service brings back its own queue
   if (runtime.current) {
     sendCommand({ type: 'stop' });
     runtime.current = null;
@@ -553,6 +569,7 @@ function snapshot() {
     remainingInBag: state.settings.activePlaylistIds.reduce((s, pid) => s + ((runtime.bags[pid] || {}).ids || []).length, 0),
     current: runtime.current,
     queue: state.queue,
+    queueCleared: runtime.queueCleared,
     requests: state.requests,
     // The full history is fetched from /api/history; this tells pages when it changed.
     historyInfo: { count: state.history.length, latestAt: state.history.length ? state.history[0].at : null },
@@ -702,7 +719,7 @@ async function route(req, res, url) {
   }
 
   if (m('POST', /^\/api\/next$/)) {
-    const track = await playNext();
+    const track = await playNext(true);
     return sendJson(res, 200, { track });
   }
 
@@ -727,6 +744,7 @@ async function route(req, res, url) {
     let at = 0;
     while (at < state.queue.length && state.queue[at].pickedFor === pickedFor) at++;
     state.queue.splice(at, 0, { qid: crypto.randomUUID(), track: { ...t, playlistId: pl.id }, pickedFor });
+    runtime.queueCleared = false;
     store.save(state);
     broadcast();
     return sendJson(res, 200, { ok: true });
@@ -782,6 +800,7 @@ async function route(req, res, url) {
       state.queue.push(...items.filter((q) => !queued.has(q.track.id)));
     }
     state.requests = [];
+    if (items.length) runtime.queueCleared = false;
     store.save(state);
     broadcast();
     return sendJson(res, 200, { added: items.length });
@@ -792,6 +811,13 @@ async function route(req, res, url) {
   // Clears the list only; the total play time is kept.
   if (m('POST', /^\/api\/history\/clear$/)) {
     state.history = [];
+    store.save(state);
+    broadcast();
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (m('POST', /^\/api\/queue\/clear$/)) {
+    clearQueue();
     store.save(state);
     broadcast();
     return sendJson(res, 200, { ok: true });

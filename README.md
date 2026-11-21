@@ -85,6 +85,7 @@ The "Up next" panel, below Now Playing, holds the upcoming tracks. Ten tracks ar
 | Control | What it does |
 |---|---|
 | ⏭ Next track | Plays the track at the top of the queue. If the queue runs out, 10 more are drawn automatically |
+| 🧹 Clear | Empties the queue. The current track keeps playing, then playback stops; Rolling Dice, adding a song or Next Track starts it again |
 | 🎲 Rolling Dice | Draws 10 new random tracks and adds them to the end of the queue |
 | 🔄 Flip Board | Clears the queue, then runs Rolling Dice |
 | Drag and drop, ↑ ↓ | Changes the order (priority) of queued tracks |
@@ -139,7 +140,7 @@ The icons next to the "Playlists" heading set the sliders of all **checked** pla
 
 Fast and Langsamer recognise the dance from the playlist name, the same way as the dance step footprints (`public/steps.js`). Fast dances: Viennese Waltz, Quickstep, Jive, Paso Doble, Samba, Tango, Salsa. Slow dances: Slow Waltz, Slowfox, Rumba. A playlist whose name names no dance gets 50. The presets are in `public/presets.js`.
 
-Each playlist has its own shuffle "bag": every track in it is drawn once before the bag is reshuffled. A track that is already queued or playing is never drawn again. Tracks removed by ✕ or Flip Board go back into the bag unplayed, so they can still come up later. The queue is saved in `/data` and survives restarts.
+Each playlist has its own shuffle "bag": every track in it is drawn once before the bag is reshuffled. A track that is already queued or playing is never drawn again. Tracks removed by ✕, Clear or Flip Board go back into the bag unplayed, so they can still come up later. The queue is saved in `/data` and survives restarts.
 
 ### Deezer's repeat setting
 Each track is played in Deezer as a one-track list. With Deezer's repeat on (player bar or Queue tab), Deezer would start that same track again when it ends, so the userscript keeps repeat **off** while it controls playback (this changes the repeat setting in your Deezer account). If repeat can't be switched off, a track that jumps from its end back to the start still counts as ended, and the next track follows within a fraction of a second.

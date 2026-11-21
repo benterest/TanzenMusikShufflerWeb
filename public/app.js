@@ -189,7 +189,9 @@ function renderQueue(s) {
           <button data-remove title="Remove from queue">✕</button>
         </div>
       </li>`).join('')
-    : '<li class="muted">The queue is empty. Press 🎲 Rolling Dice.</li>';
+    : s.queueCleared
+      ? '<li class="muted">Up next was cleared. Playback stops after the current track. Press 🎲 Rolling Dice to continue.</li>'
+      : '<li class="muted">The queue is empty. Press 🎲 Rolling Dice.</li>';
 }
 
 // ---------- History tab ----------
@@ -460,7 +462,8 @@ $('btn-display').onclick = () => {
     win.resizeTo(target.availWidth, target.availHeight);
   }).catch(() => {});
 };
-$('btn-roll').onclick =() => act(() => api('POST', 'api/queue/roll'));
+$('btn-clear').onclick = () => act(() => api('POST', 'api/queue/clear'));
+$('btn-roll').onclick = () => act(() => api('POST', 'api/queue/roll'));
 $('btn-flip').onclick = () => act(() => api('POST', 'api/queue/flip'));
 $('btn-pause').onclick = () => act(() => api('POST', 'api/pause'));
 $('btn-resume').onclick = () => act(() => api('POST', 'api/resume'));
