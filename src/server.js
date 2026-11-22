@@ -673,6 +673,48 @@ async function route(req, res, url) {
     return sendJson(res, 200, { id: pl.id, title: pl.title, trackCount: pl.tracks.length });
   }
 
+  // Loads a playlist set saved by the control page (a JSON file). It replaces
+  // the current service's playlists, in the saved order, with the saved
+  // priorities and checkboxes. Each playlist is fetched again, so its tracks
+  // are current. A file from the other service is refused: switch first.
+  if (m('POST', /^\/api\/playlists\/load$/)) {
+    const body = await readJson(req);
+    if (!PROVIDERS[body.service]) return sendJson(res, 400, { error: 'This file is not a saved playlist set.' });
+    if (body.service !== state.settings.service) {
+      return sendJson(res, 409, { error: `This file holds ${SERVICE_NAMES[body.service]} playlists, but ${serviceName()} is active. Switch the service to ${SERVICE_NAMES[body.service]} in Settings first.` });
+    }
+    const items = (Array.isArray(body.playlists) ? body.playlists : [])
+      .filter((x) => x && /^[A-Za-z0-9]+$/.test(String(x.id))).slice(0, 200);
+    if (!items.length) return sendJson(res, 400, { error: 'The file has no playlists.' });
+    const loaded = [];
+    const failed = [];
+    for (const x of items) {
+      if (loaded.some((l) => l.pl.id === String(x.id))) continue;
+      try {
+        loaded.push({ pl: await provider().fetchPlaylist(String(x.id)), x });
+      } catch (e) {
+        failed.push({ id: String(x.id), title: String(x.title || x.id), error: e.message });
+      }
+    }
+    if (!loaded.length) return sendJson(res, 502, { error: `None of the playlists could be loaded (${failed[0].error}).` });
+
+    const s = state.settings;
+    for (const [id, pl] of Object.entries(state.playlists)) {
+      if (ofService(pl)) { delete state.playlists[id]; delete s.playlistPriorities[id]; }
+    }
+    for (const { pl, x } of loaded) {
+      state.playlists[pl.id] = pl;
+      if (x.priority !== undefined) s.playlistPriorities[pl.id] = Shares.clampPriority(x.priority);
+      if (pl.provider === 'spotify') fillCovers(pl.id);
+    }
+    s.activePlaylistIds = loaded.filter(({ x }) => x.active !== false).map(({ pl }) => pl.id);
+    state.queue = state.queue.filter((q) => !q.track.playlistId || state.playlists[q.track.playlistId]);
+    ensureQueue();
+    store.save(state);
+    broadcast();
+    return sendJson(res, 200, { loaded: loaded.length, failed });
+  }
+
   let r;
   if ((r = m('POST', /^\/api\/playlists\/([A-Za-z0-9]+)\/refresh$/))) {
     const old = state.playlists[r[1]];

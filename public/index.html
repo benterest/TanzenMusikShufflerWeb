@@ -81,6 +81,9 @@
       <form id="add-form" class="row">
         <input id="add-input" placeholder="Public playlist URL or ID" required>
         <button type="submit">Add</button>
+        <button type="button" id="pl-save" title="Save the playlists, their priorities and checkboxes to a JSON file">💾 Save</button>
+        <button type="button" id="pl-load" title="Load playlists from a saved JSON file (replaces the current list)">📂 Load</button>
+        <input type="file" id="pl-load-file" accept=".json,application/json" hidden>
       </form>
       <p id="pl-error" class="req-error" hidden></p>
       <div id="pl-layout" class="pl-layout">

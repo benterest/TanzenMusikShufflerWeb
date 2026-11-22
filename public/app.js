@@ -491,6 +491,66 @@ $('add-form').onsubmit = async (e) => {
 };
 $('add-input').addEventListener('input', () => showPlaylistError(''));
 
+// ---------- save / load the playlist set (JSON file) ----------
+// The file names its service, so Deezer and Spotify sets never mix: loading
+// a file from the other service asks to switch first and loads nothing.
+const SET_FORMAT = 'tanzen-playlists';
+
+$('pl-save').onclick = () => {
+  if (!snap) return;
+  if (!snap.playlists.length) return showPlaylistError('There are no playlists to save.');
+  const data = {
+    format: SET_FORMAT, version: 1,
+    service: snap.settings.service,
+    savedAt: new Date().toISOString(),
+    playlists: snap.playlists.map((p) => ({
+      id: p.id, title: p.title, link: p.link, priority: p.priority, active: p.share !== null,
+    })),
+  };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `playlists-${snap.settings.service}-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+$('pl-load').onclick = () => $('pl-load-file').click();
+$('pl-load-file').onchange = async (e) => {
+  const file = e.target.files[0];
+  e.target.value = ''; // the same file can be picked again
+  if (!file || !snap) return;
+  showPlaylistError('');
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch {
+    return showPlaylistError('This file is not valid JSON.');
+  }
+  if (!data || data.format !== SET_FORMAT || !Array.isArray(data.playlists) || !SERVICE_NAMES[data.service]) {
+    return showPlaylistError('This file is not a saved playlist set.');
+  }
+  const current = snap.settings.service;
+  if (data.service !== current) {
+    return showPlaylistError(`This file holds ${SERVICE_NAMES[data.service]} playlists, but ${SERVICE_NAMES[current]} is active. Switch the service to ${SERVICE_NAMES[data.service]} in Settings, then load the file again.`);
+  }
+  if (snap.playlists.length && !confirm(`Replace the ${snap.playlists.length} current ${SERVICE_NAMES[current]} playlists with the ${data.playlists.length} in "${file.name}"?`)) return;
+  const btn = $('pl-load');
+  btn.disabled = true;
+  btn.textContent = '⏳ Loading…';
+  try {
+    const r = await api('POST', 'api/playlists/load', { service: data.service, playlists: data.playlists });
+    if (r.failed.length) {
+      showPlaylistError(`Loaded ${r.loaded}. Could not load: ${r.failed.map((f) => `${f.title} (${f.error})`).join(', ')}`);
+    }
+  } catch (err) {
+    showPlaylistError(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📂 Load';
+  }
+};
+
 // Notes under the playlists: a share above 50% can't be reached, and
 // nothing can be picked when every active playlist is at 0.
 function renderShareNote(playlists) {
