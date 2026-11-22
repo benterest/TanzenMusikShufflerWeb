@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tanzen Music Shuffler – Spotify Player
 // @namespace    tanzen-music-shuffler
-// @version      0.1.0
+// @version      0.3.0
 // @description  Plays tracks chosen by the Tanzen Music Shuffler server in this open.spotify.com tab.
 // @match        https://open.spotify.com/*
 // @grant        GM_xmlhttpRequest
@@ -69,9 +69,11 @@
 
   const $ = (sel) => W.document.querySelector(sel);
   const SEL = {
-    widget: '[data-testid="now-playing-widget"]',
     playPause: '[data-testid="control-button-playpause"]',
     actionBarPlay: '[data-testid="action-bar-row"] [data-testid="play-button"]',
+    // Title link in the player bar: /track/{id}, or an album link with
+    // ?highlight=spotify:track:{id}.
+    nowLink: '[data-testid="now-playing-bar"] [data-testid="context-item-link"], [data-testid^="now-playing-widget"] a[href*="track"]',
     adMarker: '[data-testid="context-item-info-ad-title"], [data-testid="ad-link"]',
   };
 
@@ -82,19 +84,80 @@
     return cands.find((e) => !e.paused) || cands[0] || null;
   }
 
+  // Elements in or near the player bar, tried in order. Spotify renames its
+  // test ids from time to time, so several are tried; the first that leads
+  // to the player state is remembered.
+  const ROOTS = [
+    '[data-testid="now-playing-widget-v2"]',
+    '[data-testid="now-playing-widget"]',
+    '[data-testid="now-playing-bar"]',
+    '[data-testid="player-controls"]',
+    '[data-testid="control-button-playpause"]',
+    '[data-testid="playback-progressbar"]',
+    'footer',
+    'aside[data-testid]',
+  ];
+  let rootUsed = '';
+
+  const isItem = (x) => !!x && typeof x === 'object' && typeof x.uri === 'string' && /^spotify:/.test(x.uri);
+
   // Player state item { uri, name, artists, album, duration, ... } from the
   // React props of the player bar. Its `context` is the list or track that
   // was started, so only `item` tells the current track.
-  function item() {
-    const root = $(SEL.widget);
-    if (!root) return null;
-    const key = Object.keys(root).find((k) => k.startsWith('__reactFiber$'));
-    let f = key && root[key];
-    for (let up = 0; f && up < 30; up++, f = f.return) {
-      const st = f.memoizedProps && f.memoizedProps.state;
-      if (st && st.item && typeof st.item.uri === 'string') return st.item;
+  // Looks at each prop and one level inside it, e.g. props.state.item or
+  // props.track, for an object with a spotify:track: uri.
+  function trackIn(p) {
+    for (const v of Object.values(p)) {
+      if (!v || typeof v !== 'object') continue;
+      if (isItem(v) && /^spotify:(track|episode|ad):/.test(v.uri)) return v;
+      if (Array.isArray(v)) continue;
+      for (const w of Object.values(v)) if (isItem(w) && /^spotify:(track|episode|ad):/.test(w.uri)) return w;
     }
     return null;
+  }
+  function itemFrom(root) {
+    const key = Object.keys(root).find((k) => k.startsWith('__reactFiber$'));
+    let f = key && root[key];
+    for (let up = 0; f && up < 60; up++, f = f.return) {
+      const p = f.memoizedProps;
+      if (!p || typeof p !== 'object') continue;
+      if (p.state && isItem(p.state.item)) return p.state.item;
+      const t = trackIn(p);
+      if (t) return t;
+    }
+    return null;
+  }
+
+  // Fallback when the React props can't be read: the track id from the title
+  // link in the player bar, the names from the Media Session.
+  function itemFromDom() {
+    const a = $(SEL.nowLink);
+    const href = a ? decodeURIComponent(a.getAttribute('href') || '') : '';
+    const id = (href.match(/spotify:track:([A-Za-z0-9]{22})/) || href.match(/\/track\/([A-Za-z0-9]{22})/) || [])[1];
+    if (!id) return null;
+    const md = W.navigator.mediaSession && W.navigator.mediaSession.metadata;
+    return {
+      uri: `spotify:track:${id}`,
+      type: 'track',
+      name: (md && md.title) || (a && a.textContent) || '',
+      artists: md && md.artist ? [{ name: md.artist }] : [],
+      album: { name: (md && md.album) || '', images: md ? [...(md.artwork || [])].map((x) => ({ url: x.src, width: parseInt(x.sizes, 10) || 0 })) : [] },
+      fromDom: true,
+    };
+  }
+  function item() {
+    const order = rootUsed ? [rootUsed, ...ROOTS.filter((r) => r !== rootUsed)] : ROOTS;
+    for (const sel of order) {
+      const root = $(sel);
+      const it = root && itemFrom(root);
+      if (it) {
+        rootUsed = sel;
+        return it;
+      }
+    }
+    const it = itemFromDom();
+    if (it) rootUsed = 'dom';
+    return it;
   }
 
   const trackIdOf = (it) => ((it && String(it.uri).match(/^spotify:track:([A-Za-z0-9]{22})$/)) || [])[1] || '';
@@ -117,7 +180,8 @@
 
   // The same calls the Deezer userscript makes on dzPlayer.
   const sp = {
-    ready: () => !!$(SEL.widget),
+    // The player bar is on the page (its play/pause button or any root above).
+    ready: () => !!$(SEL.playPause) || ROOTS.some((r) => $(r)),
     songId: () => trackIdOf(item()),
     isPlaying: () => {
       const m = media();
@@ -261,7 +325,8 @@
     active.tries++;
     const onPage = W.location.pathname.endsWith(path);
     const btn = $(SEL.actionBarPlay);
-    if (onPage && btn && active.tries % 2 === 0 && !(sp.songId() === id && sp.isPlaying())) {
+    // Never press it while something plays: the button would pause it.
+    if (onPage && btn && active.tries % 2 === 0 && !sp.isPlaying()) {
       btn.click();
       return;
     }
@@ -294,7 +359,10 @@
   function tickActive() {
     const now = Date.now();
     const it = item();
-    const songId = trackIdOf(it);
+    let songId = trackIdOf(it);
+    // The current track can't be read at all: treat what plays on our track's
+    // page as ours, rather than restarting it again and again.
+    if (!it && W.location.pathname.endsWith(`/track/${active.trackId}`)) songId = active.trackId;
     const ad = isAd(it);
     const playing = sp.isPlaying();
     const pos = sp.position();
@@ -438,8 +506,27 @@
     tick(); // act now instead of waiting for the (possibly throttled) timer
   }
 
+  // What the page offers, for finding new selectors after a Spotify update:
+  // the test ids in the document and the Media Session's track info.
+  function probe() {
+    const ids = new Set();
+    for (const el of W.document.querySelectorAll('[data-testid]')) {
+      ids.add(el.getAttribute('data-testid'));
+      if (ids.size >= 120) break;
+    }
+    const md = W.navigator.mediaSession && W.navigator.mediaSession.metadata;
+    return {
+      roots: ROOTS.filter((r) => $(r)),
+      testids: [...ids],
+      metadata: md ? { title: md.title, artist: md.artist } : null,
+      nowLinks: [...W.document.querySelectorAll('[data-testid="now-playing-bar"] a[href]')].slice(0, 6).map((a) => a.getAttribute('href')),
+      media: mediaEls.map((e) => ({ muted: e.muted, paused: e.paused, duration: e.duration, t: e.currentTime })),
+      path: W.location.pathname,
+    };
+  }
+
   function status() {
-    if (!sp.ready()) return { ready: false, hooks: { media: mediaEls.length, handlers: Object.keys(handlers) } };
+    if (!sp.ready()) return { ready: false, hooks: { media: mediaEls.length, handlers: Object.keys(handlers) }, probe: probe() };
     const it = item();
     return {
       ready: true,
@@ -453,7 +540,8 @@
       ad: isAd(it),
       activated: !navigator.userActivation || navigator.userActivation.hasBeenActive,
       // For checking the hooks from the server's /api/state, e.g. during an ad.
-      hooks: { media: mediaEls.length, handlers: Object.keys(handlers), item: it ? `${it.type || '?'} ${String(it.uri).split(':')[1] || ''}` : null },
+      hooks: { media: mediaEls.length, handlers: Object.keys(handlers), root: rootUsed, item: it ? `${it.type || '?'} ${String(it.uri).split(':')[1] || ''}` : null },
+      ...(it ? {} : { probe: probe() }),
     };
   }
 
